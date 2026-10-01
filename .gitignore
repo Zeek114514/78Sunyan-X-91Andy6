@@ -43,3 +43,7 @@ desktop.ini
 /.idea/
 /.vs/
 /.vscode/
+
+# Codely runtime files (machine-local, do not commit)
+/.codely-cli/
+/.com-unity-codely.json
