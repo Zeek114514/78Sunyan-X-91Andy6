@@ -1,4 +1,4 @@
-// 极简 URP 顶点色着色器：不参与光照，颜色全部烘焙在顶点色里
+﻿// 极简 URP 顶点色着色器：不参与光照，颜色全部烘焙在顶点色里
 // 只依赖 TransformObjectToHClip，最大限度降低 URP 版本差异导致的编译风险
 Shader "Voxel/Demo"
 {

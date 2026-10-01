@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>
 /// 方块交互：准星射线选中 → 左键挖、右键放，并管理鼠标锁定与选中框。
@@ -19,6 +19,7 @@ public class VoxelInteraction : MonoBehaviour
 
     public VoxelWorld World => _world;
     public string SelectedName => PaletteNames[_selected];
+    public int SelectedIndex => _selected;
 
     public void Init(VoxelWorld world, Transform cameraTransform, Transform highlight)
     {

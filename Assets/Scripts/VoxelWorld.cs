@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -49,8 +49,6 @@ public class VoxelWorld : MonoBehaviour
     };
 
     static readonly float[] FaceShade = { 0.82f, 0.76f, 1.00f, 0.55f, 0.88f, 0.72f };
-
-    static readonly int[] QuadOrder = { 0, 1, 2, 0, 2, 3 };
 
     public Material VoxelMaterial => _material;
 
@@ -134,6 +132,7 @@ public class VoxelWorld : MonoBehaviour
     {
         var verts = new List<Vector3>();
         var cols  = new List<Color>();
+        var tris  = new List<int>();
 
         for (int y = 0; y < SizeY; y++)
         {
@@ -157,13 +156,17 @@ public class VoxelWorld : MonoBehaviour
                         c.a = 1f;
                         c = c.linear;
 
+                        int baseIndex = verts.Count;   // 这个面的起始顶点
                         Vector3[] corners = FaceCorners[f];
-                        for (int i = 0; i < 6; i++)
+                        for (int i = 0; i < 4; i++)
                         {
-                            Vector3 p = corners[QuadOrder[i]];
+                            Vector3 p = corners[i];
                             verts.Add(new Vector3(x + p.x, y + p.y, z + p.z));
                             cols.Add(c);
                         }
+                        // 一个四边形拆成两个三角形
+                        tris.Add(baseIndex + 0); tris.Add(baseIndex + 1); tris.Add(baseIndex + 2);
+                        tris.Add(baseIndex + 0); tris.Add(baseIndex + 2); tris.Add(baseIndex + 3);
                     }
                 }
             }
@@ -180,7 +183,8 @@ public class VoxelWorld : MonoBehaviour
         _mesh.indexFormat = IndexFormat.UInt32;
         _mesh.SetVertices(verts);
         _mesh.SetColors(cols);
-        _mesh.RecalculateNormals();   // 非索引几何 → 逐面法线，正好是方块感
+        _mesh.SetTriangles(tris, 0);
+        _mesh.RecalculateNormals();   // 每个面独享顶点 → 逐面法线，方块感
         _mesh.RecalculateBounds();
 
         // 先置空再赋值，强制 MeshCollider 重新烘焙
@@ -203,6 +207,9 @@ public class VoxelWorld : MonoBehaviour
         if (t == Sand)  return new Color32(0xd8, 0xc9, 0x8d, 255);
         return Color.magenta;
     }
+
+    /// <summary>给 HUD 用的方块代表色（取顶面颜色）</summary>
+    public static Color UiColor(byte type) => FaceColor(type, 2);
 
     /// <summary>每格 ±6% 的确定性色差，避免大片死平</summary>
     static float Jitter(int x, int y, int z)

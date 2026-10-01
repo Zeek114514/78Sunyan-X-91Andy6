@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>
 /// 第一人称移动。碰撞直接交给 CharacterController，比自己写 AABB 更稳。
