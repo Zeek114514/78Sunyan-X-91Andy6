@@ -1,62 +1,71 @@
 ﻿using UnityEngine;
 
 /// <summary>
-/// 方块交互：准星射线选中 → 左键挖、右键放，并管理鼠标锁定与选中框。
+/// 玩家交互（开放世界版）：只管鼠标锁定、手上的道具和 Q 键丢道具。
+/// 方块世界那套挖 / 放已经去掉——现在的地形是平滑网格，没有格子可挖。
 /// </summary>
 public class VoxelInteraction : MonoBehaviour
 {
-    public float reach = 6f;
+    /// <summary>原石：不是方块，只存在于物品栏，按 Q 丢出来（值故意远超方块 id 范围）</summary>
+    public const byte Primogem = 200;
 
-    /// <summary>可用方块（对应按 1-4）</summary>
-    public static readonly byte[] Palette = { VoxelWorld.Grass, VoxelWorld.Dirt, VoxelWorld.Stone, VoxelWorld.Sand };
-    static readonly string[] PaletteNames = { "草", "土", "石", "沙" };
+    /// <summary>纠缠之缘：抽卡用的道具，同样不是方块（值故意远超方块 id 范围）</summary>
+    public const byte IntertwinedFate = 201;
 
-    VoxelWorld _world;
+    /// <summary>物品栏里的原石数量</summary>
+    public int PrimogemCount = 16;
+
+    /// <summary>物品栏里的纠缠之缘数量（抽一次卡花 1 个）</summary>
+    public int FateCount = 10;
+
+    /// <summary>物品栏：原石 / 纠缠之缘（Air 表示空手）</summary>
+    public static readonly byte[] Palette = { Primogem, IntertwinedFate };
+
+    static readonly string[] PaletteNames = { "原石", "纠缠之缘" };
+
+    OpenWorld _world;
     Transform _camera;
-    Transform _highlight;
     CharacterController _controller;
     int _selected;
 
-    public VoxelWorld World => _world;
-    public string SelectedName => PaletteNames[_selected];
+    public string SelectedName => _selected < PaletteNames.Length ? PaletteNames[_selected] : "空手";
     public int SelectedIndex => _selected;
 
-    public void Init(VoxelWorld world, Transform cameraTransform, Transform highlight)
+    public void Init(OpenWorld world, Transform cameraTransform)
     {
         _world = world;
         _camera = cameraTransform;
-        _highlight = highlight;
         _controller = GetComponent<CharacterController>();
     }
 
     void Update()
     {
-        if (_world == null || _camera == null) return;
+        if (_camera == null) return;
+        // 对话框 / 祈愿页面 / 大地图打开时不响应按键和鼠标（大地图自己管鼠标锁）
+        if (VoxelChat.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen) return;
 
         HandleCursor();
 
+        // 1-9 选道具
         for (int i = 0; i < Palette.Length; i++)
         {
             if (Input.GetKeyDown(KeyCode.Alpha1 + i)) _selected = i;
         }
 
-        bool aiming = TryPick(out Vector3Int block, out Vector3Int normal);
-        UpdateHighlight(aiming, block);
+        // 滚轮切格：向上滚 = 左移一格，向下滚 = 右移一格（循环）
+        float wheel = Input.GetAxisRaw("Mouse ScrollWheel");
+        if (wheel > 0f)      _selected = (_selected - 1 + Palette.Length) % Palette.Length;
+        else if (wheel < 0f) _selected = (_selected + 1) % Palette.Length;
 
-        if (Cursor.lockState != CursorLockMode.Locked) return;
-
-        if (aiming)
-        {
-            if (Input.GetMouseButtonDown(0)) Break(block);
-            else if (Input.GetMouseButtonDown(1)) Place(block, normal);
-        }
+        // Q 丢出当前选中的道具
+        if (Input.GetKeyDown(KeyCode.Q)) DropSelected();
     }
 
     void HandleCursor()
     {
         if (Cursor.lockState != CursorLockMode.Locked)
         {
-            // 第一次点击只负责锁定鼠标，这一帧不挖方块
+            // 第一次点击只负责锁定鼠标
             if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1))
                 Cursor.lockState = CursorLockMode.Locked;
         }
@@ -68,53 +77,33 @@ public class VoxelInteraction : MonoBehaviour
         Cursor.visible = Cursor.lockState != CursorLockMode.Locked;
     }
 
-    /// <summary>从相机沿视线打一条射线，命中则回推 0.5 格得到方块坐标</summary>
-    bool TryPick(out Vector3Int block, out Vector3Int normal)
+    /// <summary>把选中格里的道具丢到面前（Q 键）：原石和纠缠之缘都能丢</summary>
+    void DropSelected()
     {
-        block = default;
-        normal = default;
+        if (Cursor.lockState != CursorLockMode.Locked) return;
 
-        Ray ray = new Ray(_camera.position, _camera.forward);
-        if (!Physics.Raycast(ray, out RaycastHit hit, reach)) return false;
+        byte item = Palette[_selected];
+        Vector3 from = _camera.position + _camera.forward * 1.3f;
 
-        Vector3 p = hit.point - hit.normal * 0.5f;
-        block = new Vector3Int(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y), Mathf.FloorToInt(p.z));
-        normal = new Vector3Int(Mathf.RoundToInt(hit.normal.x), Mathf.RoundToInt(hit.normal.y), Mathf.RoundToInt(hit.normal.z));
-        return true;
+        if (item == Primogem)
+        {
+            if (PrimogemCount <= 0) return;
+
+            PrimogemCount--;
+            VoxelGem.Spawn(_world, transform, this, from, VoxelGem.Kind.Primogem);
+        }
+        else if (item == IntertwinedFate)
+        {
+            if (FateCount <= 0) return;
+
+            FateCount--;
+            VoxelGem.Spawn(_world, transform, this, from, VoxelGem.Kind.Fate);
+        }
     }
 
-    void UpdateHighlight(bool aiming, Vector3Int block)
-    {
-        if (_highlight == null) return;
-        _highlight.gameObject.SetActive(aiming);
-        if (aiming) _highlight.position = new Vector3(block.x + 0.5f, block.y + 0.5f, block.z + 0.5f);
-    }
+    /// <summary>玩家捡回原石时加数量（VoxelGem 调用）</summary>
+    public void AddPrimogem(int amount) => PrimogemCount += amount;
 
-    void Break(Vector3Int block)
-    {
-        if (_world.GetBlock(block.x, block.y, block.z) == VoxelWorld.Air) return;
-        if (block.y <= 0) return;                       // 最底层当基岩，不许挖穿
-        _world.SetBlock(block.x, block.y, block.z, VoxelWorld.Air);
-        _world.Rebuild();
-    }
-
-    void Place(Vector3Int block, Vector3Int normal)
-    {
-        Vector3Int target = block + normal;
-
-        if (_world.GetBlock(target.x, target.y, target.z) != VoxelWorld.Air) return;
-        if (target.y < 0 || target.y >= VoxelWorld.SizeY) return;
-        if (target.x < 0 || target.z < 0 || target.x >= VoxelWorld.SizeX || target.z >= VoxelWorld.SizeZ) return;
-        if (OverlapsPlayer(target)) return;             // 别把自己封进方块里
-
-        _world.SetBlock(target.x, target.y, target.z, Palette[_selected]);
-        _world.Rebuild();
-    }
-
-    bool OverlapsPlayer(Vector3Int b)
-    {
-        if (_controller == null) return false;
-        Bounds blockBounds = new Bounds(new Vector3(b.x + 0.5f, b.y + 0.5f, b.z + 0.5f), Vector3.one);
-        return _controller.bounds.Intersects(blockBounds);
-    }
+    /// <summary>玩家捡回纠缠之缘时加数量（VoxelGem 调用）</summary>
+    public void AddFate(int amount) => FateCount += amount;
 }

@@ -46,4 +46,5 @@ desktop.ini
 
 # Codely runtime files (machine-local, do not commit)
 /.codely-cli/
+/.codely/
 /.com-unity-codely.json
