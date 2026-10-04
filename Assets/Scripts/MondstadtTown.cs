@@ -67,7 +67,7 @@ public static class MondstadtTown
     static readonly Color Window    = new Color32(0x50, 0x5e, 0x76, 255);
     static readonly Color Flag      = new Color32(0x5f, 0xa8, 0xd8, 255);
     static readonly Color Leaf      = new Color32(0x63, 0xbe, 0x52, 255);
-    static readonly Color Blossom   = new Color32(0xf6, 0xa8, 0xc8, 255);
+    static readonly Color Water     = new Color32(0x45, 0xb7, 0xd4, 255);   // 和湖面（Voxel/Water 那套）同一个水色
 
     // ================= 摆放结果（给地图用） =================
 
@@ -324,10 +324,11 @@ public static class MondstadtTown
             float height = gate ? 13.5f : 15.5f;
             float radius = gate ? 4.2f : 3.4f;
 
+            // 塔身带顶盖：塔顶虽然多半被锥顶盖住，但门楼那种矮锥（1.32 倍底径）从侧面能瞄到塔身的顶面
             AppendCylinder(verts, cols, tris, new Vector3(p.x, GroundY, p.z), height, radius, radius * 0.92f, 8,
-                           gate ? Stone : StoneDark);
+                           gate ? Stone : StoneDark, true);
             AppendCylinder(verts, cols, tris, new Vector3(p.x, GroundY + height, p.z),
-                           gate ? 2.6f : 5.0f, radius * 1.32f, gate ? 0.5f : 0.12f, 8, RoofAlt);
+                           gate ? 2.6f : 5.0f, radius * 1.32f, gate ? 0.5f : 0.12f, 8, RoofAlt, true);
 
             if (gate)
             {
@@ -528,23 +529,24 @@ public static class MondstadtTown
     {
         Vector3 c = new Vector3(CenterX, GroundY, CenterZ);
 
-        // 三级圆台阶
+        // 三级圆台阶（带顶盖：不给盖子的话台阶是空心的，从上往下能直接看穿到地面）
         for (int k = 0; k < 3; k++)
         {
             float r = 11f - k * 2f;
             AppendCylinder(verts, cols, tris, c + Vector3.up * (k * 0.3f), 0.3f, r, r * 0.97f, 16,
-                           (k % 2 == 0) ? Stone : StoneDark);
+                           (k % 2 == 0) ? Stone : StoneDark, true);
         }
 
-        // 水池：台阶外面一圈浅水
-        AppendRing(verts, cols, tris, c + Vector3.up * 0.06f, 11.4f, 15.6f, 20, Glass);
+        // 广场水池：和湖面同色的浅水 + 一圈齐地面的石砌池沿 —— 一眼能看出这是水，不是地形色
+        AppendRing(verts, cols, tris, c + Vector3.up * 0.05f, 11.4f, 15.6f, 24, Quaternion.identity, Water);
+        AppendRing(verts, cols, tris, c + Vector3.up * 0.06f, 15.5f, 17.0f, 24, Quaternion.identity, StoneDark);
 
         // 基座 + 柱身 + 风神立像（身体 + 头 + 双翼 + 金球）
-        AppendCylinder(verts, cols, tris, c + Vector3.up * 0.9f, 1.0f, 3.0f, 2.4f, 12, StoneDark);
-        AppendCylinder(verts, cols, tris, c + Vector3.up * 1.9f, 7.0f, 1.5f, 1.1f, 10, Stone);
+        AppendCylinder(verts, cols, tris, c + Vector3.up * 0.9f, 1.0f, 3.0f, 2.4f, 12, StoneDark, true);
+        AppendCylinder(verts, cols, tris, c + Vector3.up * 1.9f, 7.0f, 1.5f, 1.1f, 10, Stone, true);
 
         Vector3 top = c + Vector3.up * 8.9f;
-        AppendCylinder(verts, cols, tris, top, 2.6f, 0.85f, 1.0f, 8, Stone);
+        AppendCylinder(verts, cols, tris, top, 2.6f, 0.85f, 1.0f, 8, Stone, true);
         AppendSphere(verts, cols, tris, top + Vector3.up * 3.0f, 0.8f, Stone, 8);
         for (int w = -1; w <= 1; w += 2)
         {
@@ -554,7 +556,8 @@ public static class MondstadtTown
         }
         AppendSphere(verts, cols, tris, top + Vector3.up * 4.7f, 0.55f, Gold, 8);
 
-        // 四个花坛 + 四面蓝白旗（摆在四个斜角，避开两条城门大道）
+        // 四个花坛 + 四面蓝白旗（摆在四个斜角，避开两条城门大道）。
+        // 花坛只保留石砌花池 + 平整的花圃顶，之前那几颗悬空的粉色小球已经删掉
         for (int i = 0; i < 4; i++)
         {
             float deg = 45f + i * 90f;
@@ -562,18 +565,11 @@ public static class MondstadtTown
             Vector3 dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
 
             Vector3 bed = c + dir * 13.6f;
-            AppendCylinder(verts, cols, tris, bed, 0.5f, 1.5f, 1.4f, 8, StoneDark);
-            AppendSphere(verts, cols, tris, bed + Vector3.up * 0.95f, 1.15f, Leaf, 7);
-            for (int f = 0; f < 3; f++)
-            {
-                float fa = a + (f - 1) * 0.3f;
-                Vector3 flower = c + new Vector3(Mathf.Cos(fa), 0f, Mathf.Sin(fa)) * 13.6f;
-                AppendSphere(verts, cols, tris, flower + Vector3.up * 1.6f, 0.36f,
-                             (f % 2 == 0) ? Blossom : Gold, 6);
-            }
+            AppendCylinder(verts, cols, tris, bed, 0.5f, 1.5f, 1.4f, 10, StoneDark, true);
+            AppendRing(verts, cols, tris, bed + Vector3.up * 0.52f, 0f, 1.36f, 12, Quaternion.identity, Leaf);   // 花圃顶：平的一片绿
 
             Vector3 pole = c + dir * 16.2f;
-            AppendCylinder(verts, cols, tris, pole, 8.4f, 0.24f, 0.2f, 6, Wood);
+            AppendCylinder(verts, cols, tris, pole, 8.4f, 0.24f, 0.2f, 6, Wood, true);
             AppendBox(verts, cols, tris, pole + Vector3.up * 7.1f,
                       new Vector3(0.14f, 2.3f, 3.1f), Yaw(OutwardYaw(deg) + 90f), Flag, Flag);
         }
@@ -649,9 +645,9 @@ public static class MondstadtTown
         AppendBox(verts, cols, tris, f + Vector3.up * 1.7f + rot * new Vector3(0f, 0f, -1.7f),
                   new Vector3(1.7f, 1.3f, 0.35f), rot, Gold, Gold);
 
-        // 烟囱
+        // 烟囱（带顶盖：不然从高处往下看是个空心筒）
         AppendCylinder(verts, cols, tris, p + rot * new Vector3(w * 0.3f, 0f, d * 0.3f) + Vector3.up * (h + 1.4f),
-                       7.0f, 1.2f, 0.9f, 8, StoneDark);
+                       7.0f, 1.2f, 0.9f, 8, StoneDark, true);
 
         Markers.Add(new MapMarker { name = "铁匠铺", x = p.x, z = p.z, kind = 6 });
         Blob(p.x, p.z, 6.0f, 0);
@@ -681,7 +677,7 @@ public static class MondstadtTown
         }
 
         // 四坡顶 + 金顶球
-        AppendCylinder(verts, cols, tris, p + Vector3.up * (h + 0.8f), 4.0f, side * 0.92f, 0.3f, 4, RoofAlt);
+        AppendCylinder(verts, cols, tris, p + Vector3.up * (h + 0.8f), 4.0f, side * 0.92f, 0.3f, 4, RoofAlt, true);
         AppendSphere(verts, cols, tris, p + Vector3.up * (h + 5.0f), 0.5f, Gold, 6);
 
         Markers.Add(new MapMarker { name = "瞭望塔", x = p.x, z = p.z, kind = 7 });
@@ -708,12 +704,12 @@ public static class MondstadtTown
             var rot = Yaw(yaw);
             float bodyH = 16f, r = 3.0f;
 
-            AppendCylinder(verts, cols, tris, p, bodyH, r * 1.15f, r * 0.7f, 10, Stone);
-            // 塔身上的木箍
+            AppendCylinder(verts, cols, tris, p, bodyH, r * 1.15f, r * 0.7f, 10, Stone, true);
+            // 塔身上的木箍（带顶盖：木箍是套在塔身外面的圆环，从上往下看得到它的顶面）
             for (int k = 0; k < 3; k++)
-                AppendCylinder(verts, cols, tris, p + Vector3.up * (3.5f + k * 4.6f), 0.5f, r * 0.95f, r * 0.95f, 10, WoodDark);
+                AppendCylinder(verts, cols, tris, p + Vector3.up * (3.5f + k * 4.6f), 0.5f, r * 0.95f, r * 0.95f, 10, WoodDark, true);
             // 锥顶
-            AppendCylinder(verts, cols, tris, p + Vector3.up * bodyH, 2.6f, r * 0.85f, 0.2f, 10, RoofAlt);
+            AppendCylinder(verts, cols, tris, p + Vector3.up * bodyH, 2.6f, r * 0.85f, 0.2f, 10, RoofAlt, true);
 
             // 叶轮：轮毂往城心一侧伸出来，而且抬到 14.5 米高，叶片最低处也在屋顶之上
             Vector3 hub = p + Vector3.up * 14.5f - rot * new Vector3(0f, 0f, r * 0.95f);
@@ -781,20 +777,19 @@ public static class MondstadtTown
             Vector3 p = SpotAt(StreetR + 3.0f, deg);
             if (!TryReserve(p.x, p.z, 0.3f)) { _rejectedCount++; continue; }
 
-            AppendCylinder(verts, cols, tris, p, 5.0f, 0.3f, 0.24f, 6, Wood);
+            AppendCylinder(verts, cols, tris, p, 5.0f, 0.3f, 0.24f, 6, Wood, true);
             AppendSphere(verts, cols, tris, p + Vector3.up * 5.35f, 0.6f, Gold, 6);
         }
 
-        // 城墙脚下的花坛：贴着墙根摆一圈小花，不占民居的位置也不会长到屋顶上去
+        // 城墙脚下的花坛：石砌花池 + 平整的绿色花圃顶（不再摆一颗颗粉色小球）
         for (int i = 0; i < 8; i++)
         {
             float deg = i * 45f + 20f;
             Vector3 p = SpotAt(50f, deg);
             if (!TryReserve(p.x, p.z, 0.7f)) { _rejectedCount++; continue; }
 
-            AppendCylinder(verts, cols, tris, p, 0.45f, 1.1f, 1.0f, 8, StoneDark);
-            AppendSphere(verts, cols, tris, p + Vector3.up * 0.75f, 0.8f,
-                         (i % 2 == 0) ? Leaf : Blossom, 7);
+            AppendCylinder(verts, cols, tris, p, 0.45f, 1.1f, 1.0f, 10, StoneDark, true);
+            AppendRing(verts, cols, tris, p + Vector3.up * 0.47f, 0f, 0.96f, 10, Quaternion.identity, Leaf);
         }
     }
 
@@ -887,7 +882,7 @@ public static class MondstadtTown
         float cx = CathedralX, cz = CathedralZ, y0 = CathedralY;
 
         // 高台上的神职人员聚落：石阶 + 广场铺地
-        AppendRing(verts, cols, tris, new Vector3(cx, y0 + 0.05f, cz), 0f, CathedralR - 4f, 28, StoneDark);
+        AppendRing(verts, cols, tris, new Vector3(cx, y0 + 0.05f, cz), 0f, CathedralR - 4f, 28, Quaternion.identity, StoneDark);
         // 朝向城心（西）的台阶
         for (int k = 0; k < 4; k++)
             AppendBox(verts, cols, tris, new Vector3(cx - CathedralR + 2f + k * 1.6f, y0 + 0.25f + k * 0.25f, cz),
@@ -903,14 +898,17 @@ public static class MondstadtTown
         AppendGable(verts, cols, tris, new Vector3(cx + 2f, y0 + h * 0.84f, cz + d * 0.16f), w * 1.45f, d * 0.4f, 6.0f, rot, RoofAlt);
 
         // 正立面（朝西）：玫瑰窗 + 两侧尖拱窗 + 大门
+        // 玫瑰窗以前是个"平放的圆柱"（鼓出来一截），现在改成竖起来的圆盘，正面看才是圆的
         float front = cx + 2f - w * 0.5f;
-        AppendCylinder(verts, cols, tris, new Vector3(front - 0.25f, y0 + 11.6f, cz), 0.5f, 3.0f, 3.0f, 16, Glass);
+        AppendRing(verts, cols, tris, new Vector3(front - 0.22f, y0 + 11.6f, cz), 2.0f, 3.0f, 20,
+                   Quaternion.Euler(0f, 0f, 90f), Glass);
         for (int s = -1; s <= 1; s += 2)
         {
             AppendBox(verts, cols, tris, new Vector3(front - 0.25f, y0 + 10.4f, cz + s * 6.2f),
                       new Vector3(0.6f, 7.0f, 2.4f), rot, Window, Window);
-            AppendCylinder(verts, cols, tris, new Vector3(front - 0.25f, y0 + 13.9f, cz + s * 6.2f),
-                           0.6f, 1.2f, 1.2f, 10, Window);
+            // 尖拱窗的拱顶：贴平的一块过梁（以前是平放的小圆柱，会鼓出来）
+            AppendBox(verts, cols, tris, new Vector3(front - 0.25f, y0 + 14.1f, cz + s * 6.2f),
+                      new Vector3(0.6f, 1.5f, 2.4f), rot, Window, Window);
         }
         AppendBox(verts, cols, tris, new Vector3(front - 1.2f, y0 + 3.6f, cz), new Vector3(1.6f, 7.2f, 5.0f), rot, Wood, WoodDark);
 
@@ -931,7 +929,7 @@ public static class MondstadtTown
 
         // 钟塔：立在十字交叉处，塔身 + 百叶窗 + 环廊 + 收分的尖顶（参考图里最高的那座）
         Vector3 tower = new Vector3(cx + 2f, y0, cz + d * 0.16f);
-        AppendCylinder(verts, cols, tris, tower, 32f, 6.2f, 4.0f, 10, Stone);
+        AppendCylinder(verts, cols, tris, tower, 32f, 6.2f, 4.0f, 10, Stone, true);
         for (int s = 0; s < 4; s++)
         {
             float a = s * Mathf.PI * 0.5f + 0.4f;
@@ -940,25 +938,25 @@ public static class MondstadtTown
                 AppendBox(verts, cols, tris, tower + Vector3.up * (22f + k * 5.5f) + dir * 3.1f,
                           new Vector3(2.0f, 3.4f, 0.6f), Yaw(-a * Mathf.Rad2Deg + 90f), Window, Window);
         }
-        AppendCylinder(verts, cols, tris, tower + Vector3.up * 32f, 0.8f, 4.2f, 3.9f, 10, StoneDark);
+        AppendCylinder(verts, cols, tris, tower + Vector3.up * 32f, 0.8f, 4.2f, 3.9f, 10, StoneDark, true);
         for (int s = 0; s < 4; s++)
         {
             float a = s * Mathf.PI * 0.5f;
             AppendBox(verts, cols, tris, tower + Vector3.up * 33.4f + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 4.4f,
                       new Vector3(1.4f, 1.2f, 1.4f), Quaternion.identity, StoneDark, StoneDark);
         }
-        AppendCylinder(verts, cols, tris, tower + Vector3.up * 34.2f, 4.4f, 3.9f, 2.2f, 10, Stone);
-        AppendCylinder(verts, cols, tris, tower + Vector3.up * 38.6f, 7.5f, 2.2f, 0.15f, 10, Gold);
+        AppendCylinder(verts, cols, tris, tower + Vector3.up * 34.2f, 4.4f, 3.9f, 2.2f, 10, Stone, true);
+        AppendCylinder(verts, cols, tris, tower + Vector3.up * 38.6f, 7.5f, 2.2f, 0.15f, 10, Gold, true);
         AppendSphere(verts, cols, tris, tower + Vector3.up * 46.4f, 0.9f, Gold, 8);
 
-        // 高台边上的几棵树，别让石头台面太空
+        // 高台边上的几棵树（绿色树冠，不用粉色球）
         for (int i = 0; i < 6; i++)
         {
             float deg = 30f + i * 52f;
             float a = deg * Mathf.Deg2Rad;
             Vector3 p = new Vector3(cx + Mathf.Cos(a) * (CathedralR - 9f), y0, cz + Mathf.Sin(a) * (CathedralR - 9f));
-            AppendCylinder(verts, cols, tris, p, 4.6f, 0.6f, 0.4f, 6, WoodDark);
-            AppendSphere(verts, cols, tris, p + Vector3.up * 5.6f, 2.2f, (i % 2 == 0) ? Leaf : Blossom, 8);
+            AppendCylinder(verts, cols, tris, p, 4.6f, 0.6f, 0.4f, 6, WoodDark, true);
+            AppendSphere(verts, cols, tris, p + Vector3.up * 5.6f, 2.2f, Leaf, 8);
         }
 
         Markers.Add(new MapMarker { name = "大教堂", x = cx, z = cz, kind = 2 });
@@ -1038,6 +1036,9 @@ public static class MondstadtTown
         for (int i = 0; i < faces.Length; i++) outTris.Add(baseIndex + faces[i]);
     }
 
+    /// <summary>双坡屋顶（屋脊沿局部 Z 轴）。
+    /// ★ 三角形绕序必须让法线朝外：之前这里是反的，结果屋顶正面被背面剔除掉——
+    ///   站在外面看不见屋顶，绕到另一边却看见屋顶的内表面，人一走进屋顶体积就"卡"在屋顶里。</summary>
     static void AppendGable(List<Vector3> verts, List<Color> cols, List<int> tris,
                             Vector3 baseCenter, float width, float depth, float height, Quaternion rot, Color color)
     {
@@ -1052,13 +1053,16 @@ public static class MondstadtTown
         };
         foreach (var p in v) { verts.Add(baseCenter + rot * p); cols.Add(c); }
 
-        int[] faces = { 0, 1, 4, 2, 3, 5, 0, 4, 5, 0, 5, 3, 1, 2, 5, 1, 5, 4 };
+        int[] faces = { 0, 4, 1, 2, 5, 3, 0, 5, 4, 0, 3, 5, 1, 5, 2, 1, 4, 5 };
         var outTris = Route(color);
         for (int i = 0; i < faces.Length; i++) outTris.Add(baseIndex + faces[i]);
     }
 
+    /// <summary>圆柱 / 圆台（只有侧面）。capTop = true 时补一个顶盖：台阶、基座、平台这类
+    /// "看得见顶面"的零件必须带盖子，否则顶面是空的、从上往下能直接看穿。</summary>
     static void AppendCylinder(List<Vector3> verts, List<Color> cols, List<int> tris,
-                               Vector3 basePos, float height, float bottomR, float topR, int sides, Color color)
+                               Vector3 basePos, float height, float bottomR, float topR, int sides, Color color,
+                               bool capTop = false)
     {
         int baseIndex = verts.Count;
         Color c = color.linear;
@@ -1083,6 +1087,20 @@ public static class MondstadtTown
             int hi0 = baseIndex + sides + 1 + i, hi1 = hi0 + 1;
             outTris.Add(lo0); outTris.Add(hi0); outTris.Add(lo1);
             outTris.Add(lo1); outTris.Add(hi0); outTris.Add(hi1);
+        }
+
+        if (!capTop) return;
+
+        // 顶盖：以顶面圆心为中心的三角扇，绕序和地形朝上的面一致（法线朝上）
+        int center = verts.Count;
+        verts.Add(basePos + Vector3.up * height);
+        cols.Add(c);
+
+        for (int i = 0; i < sides; i++)
+        {
+            outTris.Add(center);
+            outTris.Add(baseIndex + sides + 2 + i);      // 顶面下一格
+            outTris.Add(baseIndex + sides + 1 + i);      // 顶面当前格
         }
     }
 
@@ -1122,9 +1140,10 @@ public static class MondstadtTown
         }
     }
 
-    /// <summary>水平圆环（广场水池、教堂铺地都靠它；innerR = 0 就是一个圆盘）</summary>
+    /// <summary>圆环 / 圆盘（广场水池、花圃顶、教堂铺地、圆窗都靠它；innerR = 0 就是一个实心圆盘）。
+    /// rot 用来把圆盘立起来（法线朝水平方向），比如教堂正面的圆窗。</summary>
     static void AppendRing(List<Vector3> verts, List<Color> cols, List<int> tris,
-                           Vector3 center, float innerR, float outerR, int sides, Color color)
+                           Vector3 center, float innerR, float outerR, int sides, Quaternion rot, Color color)
     {
         int baseIndex = verts.Count;
         Color c = color.linear;
@@ -1134,9 +1153,9 @@ public static class MondstadtTown
         {
             float a = (float)i / sides * Mathf.PI * 2f;
             float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
-            verts.Add(center + new Vector3(ca * innerR, 0f, sa * innerR));
+            verts.Add(center + rot * new Vector3(ca * innerR, 0f, sa * innerR));
             cols.Add(c);
-            verts.Add(center + new Vector3(ca * outerR, 0f, sa * outerR));
+            verts.Add(center + rot * new Vector3(ca * outerR, 0f, sa * outerR));
             cols.Add(c);
         }
 
