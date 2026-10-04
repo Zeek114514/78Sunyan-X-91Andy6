@@ -48,6 +48,10 @@ public class VoxelNpcData
     public bool   useUrpLitMaterial = false;  // 勾上：放弃模型自带 PBR 材质，用 URP/Lit 只保留底色贴图（材质再发金属色时的保险开关）
     public float  modelSmoothness  = 0.35f;  // useUrpLitMaterial 打开时的光滑度（0 哑光 ~ 1 镜面）
 
+    /// <summary>（测试用）站着不动：不游荡、不追不躲、也不转身，只播站立动画。
+    /// 浮空测试平台上那 100 个阵型 NPC 用它保持队形。</summary>
+    public bool holdPosition = false;
+
     /// <summary>孙琰：默认值就是他本人的数据；有饥饿条、会捡原石，身上带着 1600 原石，看见 Andy 就追</summary>
     public static VoxelNpcData SunYan()
     {

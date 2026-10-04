@@ -16,12 +16,27 @@ public class OpenWorld : MonoBehaviour
 {
     // ---------- 世界尺寸 ----------
 
-    public const float Size = 340f;        // 地图边长（米）
-    const int   Res  = 240;                // 每边的格子数
-    const float Cell = Size / Res;         // 一格约 1.4 米
+    public const float Size = 600f;        // 地图边长（米）—— 比上一版大了一圈，东北角整片留给龙脊雪山
+    const int   Res  = 400;                // 每边的格子数（1.5 米一格，精度和上一版基本一致）
+    public const float Cell = Size / Res;  // 一格 1.5 米
 
     /// <summary>水面高度：比它低的地方就是湖 / 河</summary>
     public const float WaterLevel = 3.2f;
+
+    /// <summary>雪线：比它高的地方开始积雪（上色、怪物分布、严寒值都用它）</summary>
+    public const float SnowLine = 62f;
+
+    // ---------- 龙脊雪山（地图东北角那一整片） ----------
+    // 一条西南 → 东北走向的大山脊：主峰约 205 米高、山体铺开三百多米，
+    // 再叠上山脊噪声（锯齿感）、两条 U 形冰川谷、谷口一道冰碛垄、鞍部一个冰蚀盆地（冰湖）。
+    const float MassifPeakX = 440f, MassifPeakZ = 442f;    // 主峰中心
+    const float FrozenLakeX = 474f, FrozenLakeZ = 470f;    // 冰湖（冻住的湖面，平的、能走）
+
+    // ---------- 高度场缓存 ----------
+    // 地形高度是十几个三角函数算出来的，到处直接调用太贵；启动时先烘一张高度场，
+    // 之后地形网格 / 上色 / 种树 / 怪物选点 / AI 查询全部走它（双线性取样），比现算还快一点。
+    static float[] _heightField;
+    static int     _fieldRes;
 
     /// <summary>城南那条河的中心线（东西走向，蛇形）</summary>
     public static float RiverZ(float x) => 132f + 9f * Mathf.Sin(x * 0.022f);
@@ -55,8 +70,42 @@ public class OpenWorld : MonoBehaviour
 
     // ---------- 地形高度 ----------
 
-    /// <summary>地表高度（米）</summary>
+    /// <summary>地表高度（米）：优先查启动时烘好的高度场（双线性取样），还没烘就用解析公式现算</summary>
     public static float Height(float x, float z)
+    {
+        if (_heightField == null) return HeightRaw(x, z);
+
+        float fx = Mathf.Clamp(x / Cell, 0f, _fieldRes - 1.001f);
+        float fz = Mathf.Clamp(z / Cell, 0f, _fieldRes - 1.001f);
+
+        int x0 = (int)fx, z0 = (int)fz;
+        int x1 = Mathf.Min(x0 + 1, _fieldRes - 1);
+        int z1 = Mathf.Min(z0 + 1, _fieldRes - 1);
+        float tx = fx - x0, tz = fz - z0;
+
+        int n = _fieldRes;
+        float h00 = _heightField[z0 * n + x0], h10 = _heightField[z0 * n + x1];
+        float h01 = _heightField[z1 * n + x0], h11 = _heightField[z1 * n + x1];
+
+        return Mathf.Lerp(Mathf.Lerp(h00, h10, tx), Mathf.Lerp(h01, h11, tx), tz);
+    }
+
+    /// <summary>把整张地图的高度烘进高度场（生成地形网格之前调用一次）</summary>
+    void BuildHeightField()
+    {
+        _fieldRes = Res + 1;
+        _heightField = new float[_fieldRes * _fieldRes];
+
+        for (int iz = 0; iz < _fieldRes; iz++)
+        {
+            float z = iz * Cell;
+            for (int ix = 0; ix < _fieldRes; ix++)
+                _heightField[iz * _fieldRes + ix] = HeightRaw(ix * Cell, z);
+        }
+    }
+
+    /// <summary>地表高度（解析公式）：丘陵、河流、道路、城岛、护城河、龙脊雪山全在这算</summary>
+    public static float HeightRaw(float x, float z)
     {
         // 二次元草原那种圆润的丘陵
         float h = 5.6f
@@ -64,10 +113,9 @@ public class OpenWorld : MonoBehaviour
                 + 1.4f * Mathf.Sin(x * 0.071f + 2.1f) * Mathf.Sin(z * 0.061f + 0.6f)
                 + 0.7f * Mathf.Sin(x * 0.13f + z * 0.11f);
 
-        // 东北方向一排矮山，给远景一个轮廓。
-        // 起点放到 380 米以外：不然城东（大教堂高台外侧）的地面会被抬到 10 米以上，把东桥埋进土里
-        float ridge = Mathf.Clamp01((x + z - 380f) / 160f);
-        h += ridge * ridge * 22f;
+        // 东北方向的山麓：从城东北一路缓缓抬向龙脊雪山（起点 380 米，免得城东地面被抬太高把东桥埋掉）
+        float ridge = Mathf.Clamp01((x + z - 380f) / 260f);
+        h += ridge * ridge * 46f;
 
         // 西边一个湖盆
         float lx = x - 85f, lz = z - 118f;
@@ -106,12 +154,95 @@ public class OpenWorld : MonoBehaviour
         float moat = Mathf.Min(wIn, wOut);
         if (moat > 0f) h = Mathf.Lerp(h, 0.5f, moat);
 
+        // ---------- 龙脊雪山 ----------
+        // 一条西南 → 东北走向的大山脊：七座峰叠在一起，山体铺开三百多米、主峰两百米高，
+        // 从城里往东北看就是一整片压在视野上的雪山（这是参考真实雪山"一条主脊 + 若干肩峰"的做法）
+        float massif = 0f;
+        massif += Peak(x, z, 440f, 442f, 145f, 205f);   // 主峰（最高）
+        massif += Peak(x, z, 386f, 494f, 105f, 150f);   // 西南肩峰
+        massif += Peak(x, z, 500f, 378f, 100f, 158f);   // 东北肩峰
+        massif += Peak(x, z, 326f, 516f,  78f, 104f);   // 脊首小峰
+        massif += Peak(x, z, 534f, 338f,  66f,  96f);   // 脊尾小峰
+        massif += Peak(x, z, 452f, 396f,  60f, 132f);   // 鞍部上的小峰
+
+        if (massif > 0f)
+        {
+            // 山脊噪声：低频大起伏 + 高频碎石感，按山体高度收敛（山脚几乎是平的，不破坏草原）
+            float mask = Mathf.Clamp01(massif / 70f);
+            float a = (Mathf.PerlinNoise(x * 0.045f, z * 0.045f) - 0.5f) * 2f;
+            float b = (Mathf.PerlinNoise(x * 0.115f + 11f, z * 0.115f + 7f) - 0.5f) * 2f;
+            h += massif + mask * (a * 16f + b * 5f);
+        }
+
+        // 冰川谷：从主峰往西南 / 往南各切一条 U 形谷（谷底平缓、谷壁陡，谷里可以走人）
+        h -= Valley(x, z, MassifPeakX, MassifPeakZ, 300f, 322f, 34f, 26f);
+        h -= Valley(x, z, MassifPeakX, MassifPeakZ, 336f, 486f, 28f, 20f);
+
+        // 冰碛垄：谷口堆一道矮垄（冰川堆积地貌）
+        h += Mound(x, z, 348f, 322f, 48f, 9f);
+
+        // 冰蚀盆地：鞍部上一个浅碗，冻住以后就是冰湖
+        float fdx = x - FrozenLakeX, fdz = z - FrozenLakeZ;
+        float lakeBowl = Mathf.Clamp01(1f - Mathf.Sqrt(fdx * fdx + fdz * fdz) / 30f);
+        h -= lakeBowl * lakeBowl * 13f;
+
         // 南桥桥面下那一小段地：压到桥面以下，免得地面从桥面里冒出来（只在桥正下方那一条，看不见）
         if (Mathf.Abs(x - MondstadtTown.CenterX) < 5.5f &&
             z > MondstadtTown.SouthBridgeZ + 3f && z < MondstadtTown.SouthBridgeZ + 16f)
             h = Mathf.Min(h, 7.4f);
 
         return Mathf.Max(h, -1f);
+    }
+
+    // ---------- 龙脊雪山的几件地形工具 ----------
+
+    /// <summary>一座山峰：平滑圆锥（d ≥ r 时返回 0）；指数 1.35 让山顶略尖、山腰最陡</summary>
+    static float Peak(float x, float z, float cx, float cz, float r, float height)
+    {
+        float dx = x - cx, dz = z - cz;
+        float d = Mathf.Sqrt(dx * dx + dz * dz);
+        if (d >= r) return 0f;
+        return height * Mathf.Pow(1f - d / r, 1.35f);
+    }
+
+    /// <summary>U 形冰川谷：沿 (ax,az) → (bx,bz) 这条线切下去，谷底平、谷壁陡</summary>
+    static float Valley(float x, float z, float ax, float az, float bx, float bz, float halfWidth, float depth)
+    {
+        float dx = bx - ax, dz = bz - az;
+        float len2 = dx * dx + dz * dz;
+        if (len2 < 0.001f) return 0f;
+
+        float t = Mathf.Clamp01(((x - ax) * dx + (z - az) * dz) / len2);
+        float px = ax + dx * t, pz = az + dz * t;
+        float d = Mathf.Sqrt((x - px) * (x - px) + (z - pz) * (z - pz));
+        if (d >= halfWidth) return 0f;
+
+        float u = 1f - d / halfWidth;
+        return depth * u * u * (3f - 2f * u);
+    }
+
+    /// <summary>一个小土丘（冰碛垄之类）</summary>
+    static float Mound(float x, float z, float cx, float cz, float r, float height)
+    {
+        float dx = x - cx, dz = z - cz;
+        float d = Mathf.Sqrt(dx * dx + dz * dz);
+        if (d >= r) return 0f;
+        float u = 1f - d / r;
+        return height * u * u * (3f - 2f * u);
+    }
+
+    /// <summary>雪山强度 0~1：地形上色、怪物分布、严寒值都看它（0 = 平原草原）</summary>
+    public static float SnowFactor(float x, float z)
+    {
+        float h = Height(x, z);
+        return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(SnowLine - 18f, SnowLine + 16f, h));
+    }
+
+    /// <summary>冰湖（冻住的湖面）：平的，能走上去</summary>
+    public static bool IsFrozenLake(float x, float z)
+    {
+        float dx = x - FrozenLakeX, dz = z - FrozenLakeZ;
+        return dx * dx + dz * dz < 26f * 26f && Height(x, z) > SnowLine - 34f;
     }
 
     /// <summary>城南那条从大陆通到南桥的石板路（不种树）</summary>
@@ -190,8 +321,10 @@ public class OpenWorld : MonoBehaviour
         if (waterShader == null) waterShader = Shader.Find("Voxel/Water");
         _waterMaterial = new Material(waterShader) { name = "OpenWorldWaterMaterial" };
 
+        BuildHeightField();      // 先把高度场烘好：后面的地形网格 / 上色 / 种树 / 雪山营地全都查它，快很多
         BuildTerrain();
         BuildProps();
+        BuildSnowLandmarks();
         BuildTown();
         BuildWater();
         SetupPostProcessing();
@@ -299,6 +432,9 @@ public class OpenWorld : MonoBehaviour
         float rock = Mathf.SmoothStep(0.30f, 0.52f, 1f - normal.y);
         float sand = Mathf.SmoothStep(WaterLevel + 1.2f, WaterLevel + 0.2f, y);      // 越靠水面越像沙滩
 
+        // 雪面上不混草地 / 沙滩贴图（保持干净的平涂白），陡面还是走岩石贴图
+        if (SnowFactor(x, z) > 0.5f) sand = 0f;
+
         return new Vector2(rock, sand);
     }
 
@@ -336,6 +472,26 @@ public class OpenWorld : MonoBehaviour
             float grove = ForestDensity(x, z);
             c = Color.Lerp(grass, grassLight, Mathf.PerlinNoise(x * 0.05f, z * 0.05f));
             c = Color.Lerp(c, forest, Mathf.SmoothStep(0.45f, 0.85f, grove) * 0.55f);
+        }
+
+        // ---------- 龙脊雪山：雪线以上压成雪，陡面留岩石色，山脚平滑过渡 ----------
+        float snow = SnowFactor(x, z);
+        if (IsFrozenLake(x, z))                                          // 冰湖：冻住的湖面
+        {
+            Color iceCol = new Color32(0xbf, 0xe2, 0xf0, 255);
+            c = Color.Lerp(iceCol, new Color32(0xf2, 0xfa, 0xff, 255),
+                           Mathf.PerlinNoise(x * 0.12f, z * 0.12f) * 0.5f);
+        }
+        else if (snow > 0.01f)
+        {
+            Color snowLight = new Color32(0xf7, 0xfb, 0xff, 255);
+            Color snowShade = new Color32(0xd6, 0xe4, 0xf2, 255);
+            Color highRock  = new Color32(0x94, 0x8f, 0x89, 255);
+
+            Color snowCol = Color.Lerp(snowShade, snowLight, Mathf.PerlinNoise(x * 0.05f, z * 0.05f));
+            Color rockFace = Color.Lerp(rock, highRock, Mathf.PerlinNoise(x * 0.07f, z * 0.07f));
+            Color surface = Color.Lerp(snowCol, rockFace, Mathf.SmoothStep(0.30f, 0.62f, slope));
+            c = Color.Lerp(c, surface, Mathf.Clamp01(snow * 1.35f));
         }
 
         float lit = 0.80f + 0.20f * normal.y;                            // 面朝天更亮：只留大块柔和起伏
@@ -380,6 +536,23 @@ public class OpenWorld : MonoBehaviour
                 float grove = ForestDensity(x, z);
                 float roll = Hash01(gx, gz, 13);
 
+                // 雪线附近到雪线以上：只长雪松 / 冰晶 / 雪岩，没有草原那种树（真实的树线）
+                float snow = SnowFactor(x, z);
+                if (snow > 0.35f)
+                {
+                    if (snow > 0.85f)                                   // 雪线以上：冰晶 + 雪岩
+                    {
+                        if (roll > 0.90f) AppendIceCrystal(x, y, z, Hash01(gx, gz, 17));
+                        else if (roll > 0.80f) AppendSnowRock(x, y, z, Hash01(gx, gz, 15));
+                    }
+                    else                                                // 树线附近：稀疏雪松
+                    {
+                        if (roll < 0.45f) AppendSnowTree(x, y, z, Hash01(gx, gz, 14));
+                        else if (roll > 0.90f) AppendSnowRock(x, y, z, Hash01(gx, gz, 15));
+                    }
+                    continue;
+                }
+
                 if (roll < grove * grove * grove * 0.6f)               // 只有噪声高的地方才成林
                     AppendTree(x, y, z, Hash01(gx, gz, 14));
                 else if (roll > 0.97f)
@@ -401,6 +574,148 @@ public class OpenWorld : MonoBehaviour
         go.transform.SetParent(transform, false);
         go.AddComponent<MeshFilter>().sharedMesh = _propsMesh;
         go.AddComponent<MeshRenderer>().sharedMaterial = _material;
+    }
+
+    // ---------- 龙脊雪山上的固定地标 ----------
+
+    /// <summary>雪山上的固定地标：山脚前哨营地（木屋 + 火堆）和主峰顶的登顶石堆。
+    /// 两处都记到世界地图上，照着地图就能找到雪山。</summary>
+    void BuildSnowLandmarks()
+    {
+        _verts.Clear(); _cols.Clear(); _tris.Clear();
+
+        Color wood   = new Color32(0x6b, 0x4a, 0x2f, 255);
+        Color wood2  = new Color32(0x8a, 0x66, 0x42, 255);
+        Color hide   = new Color32(0x9c, 0x7c, 0x5a, 255);
+        Color stone  = new Color32(0xac, 0xa6, 0x9c, 255);
+        Color stoneD = new Color32(0x8e, 0x89, 0x82, 255);
+        Color snowC  = new Color32(0xf4, 0xf9, 0xff, 255);
+
+        // 前哨营地：搭在雪山南麓缓坡上（雪线下面一点）
+        Vector3 camp = new Vector3(372f, Height(372f, 356f), 356f);
+        var rot = Quaternion.Euler(0f, 24f, 0f);
+
+        // 木屋：地基 + 墙 + 两面坡顶 + 烟囱
+        AppendBox(camp + Vector3.up * 0.35f, new Vector3(4.6f, 0.7f, 4.2f), rot, stoneD, stone);
+        AppendBox(camp + Vector3.up * 1.85f, new Vector3(4.0f, 2.3f, 3.6f), rot, hide, wood2);
+        AppendBox(camp + Vector3.up * 3.55f, new Vector3(5.0f, 0.32f, 4.6f), rot * Quaternion.Euler(0f, 0f, 30f), snowC, wood);
+        AppendBox(camp + Vector3.up * 3.55f, new Vector3(5.0f, 0.32f, 4.6f), rot * Quaternion.Euler(0f, 0f, -30f), snowC, wood);
+        AppendBox(camp + rot * new Vector3(1.7f, 4.5f, 1.2f), new Vector3(0.75f, 1.7f, 0.75f), rot, stoneD, stoneD);
+
+        // 门口火堆：石圈 + 交叉柴
+        Vector3 fire = camp + rot * new Vector3(0f, 0f, 3.8f);
+        for (int i = 0; i < 8; i++)
+        {
+            float a = i * Mathf.PI * 0.25f;
+            AppendBox(fire + new Vector3(Mathf.Cos(a) * 1.05f, 0.16f, Mathf.Sin(a) * 1.05f),
+                      new Vector3(0.4f, 0.3f, 0.4f), Quaternion.identity, stone, stoneD);
+        }
+        for (int i = 0; i < 3; i++)
+            AppendBox(fire + Vector3.up * (0.3f + i * 0.14f), new Vector3(0.18f, 0.18f, 1.7f),
+                      Quaternion.Euler(0f, i * 55f, 0f), wood, wood);
+
+        // 主峰登顶石堆 + 旗杆（登顶打卡点）
+        Vector3 top = new Vector3(MassifPeakX, Height(MassifPeakX, MassifPeakZ), MassifPeakZ);
+        for (int i = 0; i < 5; i++)
+        {
+            float r = 1.5f - i * 0.24f;
+            AppendBlob(top + Vector3.up * (0.5f + i * 0.55f), r, Color.Lerp(stone, snowC, 0.55f), 6, 0.6f, i * 0.31f);
+        }
+        AppendPrism(top + Vector3.up * 3.1f, 4.2f, 0.22f, 0.16f, 5, wood2);
+        AppendBox(top + Vector3.up * 6.6f, new Vector3(0.12f, 1.3f, 1.9f), Quaternion.identity,
+                  new Color32(0x5f, 0xa8, 0xd8, 255), new Color32(0x4c, 0x8f, 0xc4, 255));
+
+        // 合成一个网格 + 碰撞
+        var mesh = new Mesh { name = "SnowLandmarks" };
+        mesh.indexFormat = IndexFormat.UInt32;
+        mesh.SetVertices(_verts);
+        mesh.SetColors(_cols);
+        mesh.SetTriangles(_tris, 0);
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+
+        var go = new GameObject("SnowLandmarks");
+        go.transform.SetParent(transform, false);
+        go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        go.AddComponent<MeshRenderer>().sharedMaterial = _material;
+        go.AddComponent<MeshCollider>().sharedMesh = mesh;
+
+        MondstadtTown.Markers.Add(new MondstadtTown.MapMarker { name = "雪山前哨营地", x = camp.x, z = camp.z, kind = 10 });
+        MondstadtTown.Markers.Add(new MondstadtTown.MapMarker { name = "龙脊雪山主峰", x = top.x, z = top.z, kind = 11 });
+        MondstadtTown.Markers.Add(new MondstadtTown.MapMarker { name = "冰湖", x = FrozenLakeX, z = FrozenLakeZ, kind = 12 });
+
+        Debug.Log($"[OpenWorld] 龙脊雪山：主峰 {top.y:0} 米，前哨营地 {camp.y:0} 米，冰湖 ({FrozenLakeX},{FrozenLakeZ})");
+    }
+
+    /// <summary>一个盒子（顶面 / 侧面分开上色）：绕序和城里那套一致，法线朝外</summary>
+    void AppendBox(Vector3 center, Vector3 size, Quaternion rot, Color top, Color side)
+    {
+        int baseIndex = _verts.Count;
+        Vector3 hh = size * 0.5f;
+
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 corner = new Vector3((i & 1) == 0 ? -hh.x : hh.x,
+                                         (i & 2) == 0 ? -hh.y : hh.y,
+                                         (i & 4) == 0 ? -hh.z : hh.z);
+            _verts.Add(center + rot * corner);
+            _cols.Add(((i & 2) == 0 ? side : top).linear);
+        }
+
+        int[] faces =
+        {
+            0, 2, 3, 0, 3, 1,
+            4, 5, 7, 4, 7, 6,
+            0, 1, 5, 0, 5, 4,
+            2, 6, 7, 2, 7, 3,
+            1, 3, 7, 1, 7, 5,
+            0, 4, 6, 0, 6, 2,
+        };
+        for (int i = 0; i < faces.Length; i++) _tris.Add(baseIndex + faces[i]);
+    }
+
+    /// <summary>雪松：树干 + 三层锥形树冠，每层顶上一团雪</summary>
+    void AppendSnowTree(float x, float y, float z, float seed)
+    {
+        float h = 4.0f + seed * 3.2f;
+        AppendPrism(new Vector3(x, y, z), h * 0.5f, 0.28f, 0.2f, 5, new Color32(0x5a, 0x46, 0x38, 255));
+
+        Color needle  = new Color32(0x2f, 0x5a, 0x46, 255);
+        Color snowCap = new Color32(0xf0, 0xf7, 0xff, 255);
+
+        for (int i = 0; i < 3; i++)
+        {
+            float t = i / 2f;
+            float r = (2.0f - t * 0.8f) * (0.85f + seed * 0.3f);
+            float layerH = h * 0.42f;
+            float layerY = y + h * 0.18f + i * h * 0.22f;
+
+            AppendPrism(new Vector3(x, layerY, z), layerH, r, r * 0.14f, 6, needle);
+            AppendBlob(new Vector3(x, layerY + layerH, z), r * 0.52f, snowCap, 5, 0.45f, seed + i * 0.4f);
+        }
+    }
+
+    /// <summary>冰晶：两三根淡蓝尖柱，雪线以上的地标感</summary>
+    void AppendIceCrystal(float x, float y, float z, float seed)
+    {
+        Color ice = Color.Lerp(new Color32(0x9f, 0xd8, 0xef, 255), new Color32(0xe6, 0xf7, 0xff, 255), seed);
+        int n = 2 + Mathf.RoundToInt(seed * 2f);
+
+        for (int i = 0; i < n; i++)
+        {
+            float a = Hash01((int)x + i, (int)z, 19) * Mathf.PI * 2f;
+            float r = 0.4f + Hash01(i, (int)z, 21) * 0.55f;
+            float hh = 1.5f + Hash01(i, (int)x, 23) * 2.8f;
+            AppendPrism(new Vector3(x + Mathf.Cos(a) * r, y - 0.25f, z + Mathf.Sin(a) * r), hh, 0.3f, 0.04f, 4, ice);
+        }
+    }
+
+    /// <summary>雪岩：一块石头 + 顶上压着一层雪</summary>
+    void AppendSnowRock(float x, float y, float z, float seed)
+    {
+        float r = 0.8f + seed * 1.4f;
+        AppendBlob(new Vector3(x, y - r * 0.32f, z), r, new Color32(0xb0, 0xac, 0xa4, 255), 6, 0.7f, seed);
+        AppendBlob(new Vector3(x, y + r * 0.3f, z), r * 0.88f, new Color32(0xf4, 0xf9, 0xff, 255), 6, 0.42f, seed + 0.4f);
     }
 
     /// <summary>湖心那座蒙德风小城：一个网格 + 三个子网格（石墙贴图 / 屋顶贴图 / 顶点色）+ MeshCollider</summary>

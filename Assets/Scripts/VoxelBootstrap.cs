@@ -9,8 +9,8 @@ public static class VoxelBootstrap
 {
     static readonly Color SkyColor = new Color(0.56f, 0.80f, 0.95f);   // 提瓦特那种明亮的青空
     static readonly Color FogColor = new Color(0.76f, 0.89f, 0.98f);   // 远处一层奶白的雾，画面更通透
-    const float FogStart = 70f;
-    const float FogEnd   = 220f;
+    const float FogStart = 130f;                                       // 雾拉远：站在城里也要能看见东北边的龙脊雪山
+    const float FogEnd   = 620f;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot()
@@ -51,7 +51,7 @@ public static class VoxelBootstrap
         cam.clearFlags      = CameraClearFlags.SolidColor;   // 有天空盒时 OpenWorld 会把它改成 Skybox
         cam.backgroundColor = SkyColor;
         cam.nearClipPlane   = 0.1f;
-        cam.farClipPlane    = 400f;
+        cam.farClipPlane    = 1200f;    // 地图大了（600 米）+ 东北边有雪山，裁剪面要跟着拉开
         cam.fieldOfView     = 72f;
 
         player.Init(cam.transform, world);
@@ -86,8 +86,24 @@ public static class VoxelBootstrap
         SpawnNpc("NpcSunYan", VoxelNpcData.SunYan(),   3,   3, 0f, world, playerGo.transform);
         SpawnNpc("NpcAndy",   VoxelNpcData.Andy(),   -10, -10, 3f, world, playerGo.transform);
 
+        // ---------- 9. 测试用浮空大平台：左 50 个孙琰 / 右 50 个 Andy，各站 5 排，玩家直接被传送上去 ----------
+        var platformGo = new GameObject("TestPlatform");
+        var platform = platformGo.AddComponent<TestPlatform>();
+        platform.Init(world, playerGo.transform);
+        TeleportPlayer(playerGo, platform.PlayerSpawnPoint);
+
         Debug.Log("[VoxelDemo] 开放世界生成完毕，点击画面开始游玩。WASD 移动 / 空格 跳跃 / 左键 攻击 / Q 丢道具，" +
-                  "T 对话框，P 祈愿，M 世界地图，/fly 飞行，/eat 恢复饱食度。");
+                  "T 对话框，P 祈愿，M 世界地图，/fly 飞行，/eat 恢复饱食度。" +
+                  "（本局出生在浮空测试平台上：左 50 孙琰 / 右 50 Andy）");
+    }
+
+    /// <summary>把玩家瞬移到指定位置（先关掉 CharacterController 再瞬移，免得被物理推回去）</summary>
+    static void TeleportPlayer(GameObject playerGo, Vector3 pos)
+    {
+        var cc = playerGo.GetComponent<CharacterController>();
+        if (cc != null) cc.enabled = false;
+        playerGo.transform.position = pos;
+        if (cc != null) cc.enabled = true;
     }
 
     /// <summary>按数据在出生点附近生成一个 NPC；落点在水边就往旁边挪，找块干地站。

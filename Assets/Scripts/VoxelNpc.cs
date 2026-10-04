@@ -211,6 +211,9 @@ public class VoxelNpc : MonoBehaviour
         // 血量没回到 5 点以上就一直躺着
         if (_health < GetUpHealth) return NpcState.Downed;
 
+        // 测试平台上的阵型 NPC：站着不动，只播站立动画
+        if (data.holdPosition) return NpcState.Idle;
+
         // 站在水里 / 水边：先想办法上岸，别的事都往后放
         if (NearWater(transform.position.x, transform.position.z, 0.35f)) return NpcState.Ashore;
 
@@ -499,6 +502,9 @@ public class VoxelNpc : MonoBehaviour
 
     void IdleStep()
     {
+        // 测试平台的阵型 NPC：连转身都免了，保持队形朝向
+        if (data.holdPosition) return;
+
         _idleTimer -= Time.deltaTime;
 
         // 闲站时看着玩家

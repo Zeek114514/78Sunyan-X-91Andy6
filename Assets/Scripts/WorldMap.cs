@@ -12,8 +12,8 @@ public class WorldMap : MonoBehaviour
 {
     // ---------- 参数 ----------
 
-    public const int   TexSize   = 448;          // 俯视图分辨率（像素）
-    public const float MiniSrcPx = 200f;         // 小地图采样范围（俯视图像素，约 152 米见方）
+    public const int   TexSize   = 1024;         // 俯视图分辨率（像素）—— 大地图是"看一片区域"，所以烘得细一点
+    public const float MiniSrcPx = 240f;         // 小地图采样范围（俯视图像素，约 140 米见方）
 
     const float MiniR      = 88f;                // 小地图半径（像素）
     const float MiniMargin = 22f;                // 小地图离屏幕左上角多远
@@ -29,8 +29,17 @@ public class WorldMap : MonoBehaviour
     Texture2D _arrow;               // 玩家箭头
 
     GUIStyle _label, _small, _title, _hint;
-    float _zoom = 1f;
     float _openTime;
+
+    // ---------- 大地图视野 ----------
+    // 打开时以角色为中心显示一片区域（不是整张图），按住左键拖拽可以看别的区域，滚轮缩放，右键回到角色。
+    const float ViewMin = 140f;     // 拉到最近时屏幕纵向能看到多少米
+    const float ViewMax = 640f;     // 拉到最远时（比整张地图还大，等于看全图）
+    float   _viewMeters = 260f;     // 当前视野跨度（世界米）
+    Vector2 _viewCenter;            // 当前视野中心（世界坐标 XZ）
+    float   _pxPerMeter = 3f;       // 上一帧的缩放（像素 / 米），拖拽换算用
+    Vector2 _dragMouse;             // 上一帧鼠标位置（算拖拽增量）
+    bool    _dragging;
 
     public void Init(OpenWorld world, Transform player)
     {
@@ -59,9 +68,36 @@ public class WorldMap : MonoBehaviour
 
         if (IsOpen)
         {
+            // 滚轮缩放：视野跨度越小越近
             float wheel = Input.GetAxisRaw("Mouse ScrollWheel");
-            if (Mathf.Abs(wheel) > 0.001f) _zoom = Mathf.Clamp(_zoom + wheel * 0.35f, 1f, 2f);
+            if (Mathf.Abs(wheel) > 0.001f)
+                _viewMeters = Mathf.Clamp(_viewMeters * (1f - wheel * 0.6f), ViewMin, ViewMax);
+
+            // 按住左键拖动：把鼠标位移换算成世界米，拖着看别的区域
+            if (Input.GetMouseButtonDown(0)) _dragging = true;
+            if (Input.GetMouseButtonUp(0)) _dragging = false;
+
+            if (_dragging)
+            {
+                Vector2 delta = (Vector2)Input.mousePosition - _dragMouse;
+                _viewCenter -= delta / Mathf.Max(0.001f, _pxPerMeter);
+            }
+
+            // 右键：视野拉回角色身上
+            if (Input.GetMouseButtonDown(1)) CenterOnPlayer();
         }
+        else
+        {
+            _dragging = false;
+        }
+
+        _dragMouse = Input.mousePosition;
+    }
+
+    /// <summary>把大地图视野对准角色（打开地图和右键都用它）</summary>
+    void CenterOnPlayer()
+    {
+        _viewCenter = new Vector2(_player.position.x, _player.position.z);
     }
 
     void Toggle()
@@ -71,11 +107,15 @@ public class WorldMap : MonoBehaviour
         if (IsOpen)
         {
             _openTime = Time.unscaledTime;
+            _viewMeters = 260f;
+            CenterOnPlayer();                            // 打开时以角色为中心的一片区域
+            _dragMouse = Input.mousePosition;
             Cursor.lockState = CursorLockMode.None;      // 开地图时松开鼠标、角色自然停下（VoxelPlayer 看鼠标锁）
             Cursor.visible = true;
         }
         else
         {
+            _dragging = false;
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
@@ -143,16 +183,36 @@ public class WorldMap : MonoBehaviour
                              RegionName(_player.position.x, _player.position.z), _small);
     }
 
-    /// <summary>大地图：整张世界图 + 主要建筑的名字与位置 + 玩家位置 + 图例</summary>
+    /// <summary>大地图：整张世界图 + 主要建筑的名字与位置 + 玩家位置 + 图例。
+    /// 滚轮缩放、按住左键拖拽看别的区域、右键把视野拉回角色。</summary>
     void DrawBigMap()
     {
         VoxelHud.FillRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.04f, 0.06f, 0.10f, 0.86f));
 
-        float side = Mathf.Min(Screen.width, Screen.height) * 0.78f * _zoom;
-        side = Mathf.Min(side, Mathf.Min(Screen.width, Screen.height) * 0.92f);
-        var panel = new Rect((Screen.width - side) * 0.5f, (Screen.height - side) * 0.5f + 12f, side, side);
+        // 面板是屏幕中间一块方区；显示范围由 _viewMeters 决定（以角色为中心的一片，不是整张图）
+        float side = Mathf.Min(Screen.width, Screen.height) * 0.86f;
+        var panel = new Rect((Screen.width - side) * 0.5f, (Screen.height - side) * 0.5f + 14f, side, side);
 
-        GUI.DrawTexture(panel, _map, ScaleMode.StretchToFill);
+        // 视野中心夹在地图内（视野比整张地图还大时直接居中）
+        float halfView = _viewMeters * 0.5f;
+        if (_viewMeters >= OpenWorld.Size)
+        {
+            _viewCenter = new Vector2(OpenWorld.Size * 0.5f, OpenWorld.Size * 0.5f);
+        }
+        else
+        {
+            _viewCenter.x = Mathf.Clamp(_viewCenter.x, halfView, OpenWorld.Size - halfView);
+            _viewCenter.y = Mathf.Clamp(_viewCenter.y, halfView, OpenWorld.Size - halfView);
+        }
+
+        float pxPerMeter = panel.width / _viewMeters;
+        _pxPerMeter = pxPerMeter;                    // 拖拽换算要用
+
+        // 从俯视图里裁出当前视野那一片画上去（比把整张图缩放清晰得多）
+        float u = (_viewCenter.x - halfView) / OpenWorld.Size;
+        float v = (_viewCenter.y - halfView) / OpenWorld.Size;
+        float w = _viewMeters / OpenWorld.Size;
+        GUI.DrawTextureWithTexCoords(panel, _map, new Rect(u, v, w, w));
 
         var gold = new Color(0.85f, 0.78f, 0.55f, 0.85f);
         VoxelHud.FillRect(new Rect(panel.x - 3f, panel.y - 3f, panel.width + 6f, 3f), gold);
@@ -160,50 +220,53 @@ public class WorldMap : MonoBehaviour
         VoxelHud.FillRect(new Rect(panel.x - 3f, panel.y, 3f, panel.height), gold);
         VoxelHud.FillRect(new Rect(panel.x + panel.width, panel.y, 3f, panel.height), gold);
 
-        float pxPerMeter = panel.width / OpenWorld.Size;
-
-        // 地标：图标 + 名字
+        // 地标：只画在视野里的（图标 + 名字）
         for (int i = 0; i < MondstadtTown.Markers.Count; i++)
         {
             var m = MondstadtTown.Markers[i];
+            if (Mathf.Abs(m.x - _viewCenter.x) > halfView || Mathf.Abs(m.z - _viewCenter.y) > halfView) continue;
+
             Vector2 sp = MapPoint(panel, pxPerMeter, m.x, m.z);
             DrawPin(sp, MarkerColor(m.kind), 13f);
             VoxelHud.LabelShadow(new Rect(sp.x + 11f, sp.y - 10f, 160f, 20f), m.name, _label);
         }
 
-        // NPC 小点
+        // NPC 小点（同样只画视野内的）
         for (int i = 0; i < VoxelNpc.All.Count; i++)
         {
             var npc = VoxelNpc.All[i];
             if (npc == null) continue;
-            DrawPin(MapPoint(panel, pxPerMeter, npc.transform.position.x, npc.transform.position.z),
-                    new Color(0.98f, 0.86f, 0.35f), 8f);
+            Vector3 p = npc.transform.position;
+            if (Mathf.Abs(p.x - _viewCenter.x) > halfView || Mathf.Abs(p.z - _viewCenter.y) > halfView) continue;
+
+            DrawPin(MapPoint(panel, pxPerMeter, p.x, p.z), new Color(0.98f, 0.86f, 0.35f), 8f);
         }
 
-        // 玩家：脉冲圈 + 箭头
+        // 玩家：脉冲圈 + 箭头（拖远了也能一眼看到自己在哪一侧）
         Vector2 pp = MapPoint(panel, pxPerMeter, _player.position.x, _player.position.z);
         float pulse = 15f + Mathf.Sin((Time.unscaledTime - _openTime) * 3.4f) * 4f;
         DrawCircleOutline(pp, pulse, new Color(1f, 1f, 1f, 0.55f));
         DrawArrow(pp.x, pp.y, 26f, _player.eulerAngles.y, Color.white);
 
-        // 标题 / 坐标 / 图例 / 操作提示
-        VoxelHud.LabelShadow(new Rect(0f, panel.y - 52f, Screen.width, 30f), "蒙德湖畔 · 世界地图", _title);
-        VoxelHud.LabelShadow(new Rect(0f, panel.y - 24f, Screen.width, 22f),
+        // 标题 / 坐标 / 图例：固定在屏幕上，拖地图时不会跟着跑出去
+        VoxelHud.LabelShadow(new Rect(0f, 8f, Screen.width, 30f), "蒙德湖畔 · 世界地图", _title);
+        VoxelHud.LabelShadow(new Rect(0f, 38f, Screen.width, 22f),
                              $"当前位置 {RegionName(_player.position.x, _player.position.z)}    " +
-                             $"X {_player.position.x:0}  Z {_player.position.z:0}",
+                             $"X {_player.position.x:0}  Z {_player.position.z:0}    " +
+                             $"视野 {_viewMeters:0} 米    视野中心 ({_viewCenter.x:0}, {_viewCenter.y:0})",
                              _small);
 
-        VoxelHud.LabelShadow(new Rect(panel.x - 60f, panel.y + panel.height + 12f, panel.width + 120f, 22f),
-                             "红顶 = 民居    金色 = 城门 / 广场    石色细线 = 桥    黄点 = NPC    M / Esc 关闭    滚轮缩放",
+        VoxelHud.LabelShadow(new Rect(0f, Screen.height - 54f, Screen.width, 22f),
+                             "红顶 = 民居    金色 = 城门 / 广场    红色 = 丘丘人营地    白蓝 = 龙脊雪山    黄点 = NPC",
                              _small);
-        VoxelHud.LabelShadow(new Rect(panel.x - 60f, panel.y + panel.height + 34f, panel.width + 120f, 22f),
-                             "WASD 移动 · Shift 疾跑 · 空格 跳跃 · Q 丢道具 · T 对话框 · P 祈愿 · M 地图",
+        VoxelHud.LabelShadow(new Rect(0f, Screen.height - 30f, Screen.width, 22f),
+                             "按住左键拖拽 查看其他区域 · 滚轮 缩放 · 右键 回到角色 · M / Esc 关闭",
                              _hint);
     }
 
     Vector2 MapPoint(Rect panel, float pxPerMeter, float wx, float wz) => new Vector2(
-        panel.x + wx * pxPerMeter,
-        panel.y + panel.height - wz * pxPerMeter);        // 北在上
+        panel.center.x + (wx - _viewCenter.x) * pxPerMeter,
+        panel.center.y - (wz - _viewCenter.y) * pxPerMeter);     // 北在上
 
     // ---------- 小地图圆形裁剪 ----------
 
@@ -256,6 +319,10 @@ public class WorldMap : MonoBehaviour
             case 6:  return new Color(0.78f, 0.52f, 0.32f);   // 铁匠铺
             case 7:  return new Color(0.72f, 0.76f, 0.84f);   // 瞭望塔
             case 9:  return new Color(0.92f, 0.42f, 0.36f);   // 丘丘人营地（红色 = 有怪）
+            case 10: return new Color(0.86f, 0.90f, 0.96f);   // 雪山前哨营地
+            case 11: return new Color(1.00f, 1.00f, 1.00f);   // 龙脊雪山主峰
+            case 12: return new Color(0.66f, 0.88f, 0.98f);   // 冰湖
+            case 13: return new Color(0.72f, 0.98f, 0.86f);   // 测试平台（100 个 NPC）
             default: return new Color(0.55f, 0.78f, 0.90f);   // 码头
         }
     }
@@ -318,6 +385,12 @@ public class WorldMap : MonoBehaviour
         if (Vector2.Distance(new Vector2(x, z), new Vector2(MondstadtTown.CathedralX, MondstadtTown.CathedralZ))
             < MondstadtTown.CathedralR) return "大教堂高台";
 
+        // 龙脊雪山：按高度分层报区域名
+        if (OpenWorld.IsFrozenLake(x, z)) return "龙脊雪山 · 冰湖";
+        float snowH = OpenWorld.Height(x, z);
+        if (snowH > OpenWorld.SnowLine + 70f) return "龙脊雪山 · 雪线以上";
+        if (OpenWorld.SnowFactor(x, z) > 0.12f) return "龙脊雪山 · 山腰";
+
         if (z < MondstadtTown.SouthBridgeZ - 6f) return "南岸草原";
         if (x < 120f) return "西岸湖区";
         return "湖畔草原";
@@ -349,6 +422,9 @@ public class WorldMap : MonoBehaviour
         Color32 rock    = new Color32(0xc4, 0xbe, 0xaa, 255);
         Color32 peak    = new Color32(0xdf, 0xe4, 0xe6, 255);
         Color32 pave    = new Color32(0xcf, 0xc7, 0xb2, 255);
+        Color32 snow    = new Color32(0xf6, 0xfa, 0xff, 255);   // 龙脊雪山：雪
+        Color32 ice     = new Color32(0xc6, 0xe6, 0xf4, 255);   // 冰湖
+        Color32 scree   = new Color32(0xb4, 0xb0, 0xa8, 255);   // 雪线附近的碎石坡
 
         for (int iy = 0; iy < TexSize; iy++)
         {
@@ -368,6 +444,11 @@ public class WorldMap : MonoBehaviour
                 Color32 c;
                 if (h < water - 1.6f)      c = deep;
                 else if (h < water)        c = shallow;
+                else if (OpenWorld.IsFrozenLake(x, z)) c = ice;                       // 冰湖（冻住的湖面）
+                else if (h > OpenWorld.SnowLine + 14f) c = snow;                       // 雪线以上：大片白
+                else if (h > OpenWorld.SnowLine - 16f)                                 // 雪线过渡：碎石夹雪
+                    c = Lerp32(scree, snow, Mathf.SmoothStep(0f, 1f,
+                              Mathf.InverseLerp(OpenWorld.SnowLine - 16f, OpenWorld.SnowLine + 14f, h)));
                 else if (h < water + 0.8f) c = sand;
                 else if (steep > 0.34f)    c = rock;
                 else if (h > 24f)          c = peak;
