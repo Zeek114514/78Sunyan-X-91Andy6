@@ -35,7 +35,7 @@ public static class MondstadtTown
     public const float MoatOuter = WallR + 21f;        // 护城河外沿（地形用）
 
     public const float PlazaR     = 17f;               // 中央广场占位半径（含雕像 / 水池 / 花坛 / 旗杆）
-    public const float StreetR    = 30f;               // 城内环路半径
+    public const float StreetR    = 32f;               // 城内环路半径
     public const float StreetHalf = 2.4f;              // 环路半宽（地形铺石板用）
 
     public const float SouthGateDeg = 270f;            // 南门：接长桥，通往出生点
@@ -369,14 +369,14 @@ public static class MondstadtTown
                       new Vector3(1.7f, 1.0f, WallT * 0.5f), rot, StoneDark, StoneDark);
         }
 
-        // 门洞两侧的木门扇（半开着，贴在内侧）
-        Vector3 inward = new Vector3(CenterX - gm.x, 0f, CenterZ - gm.z).normalized;
+        // 门洞两侧各立一段石墩，做出门框的感觉 —— 中间必须留出通路，
+        // 之前这里放的是两扇木门，正好把整个门洞堵死，玩家根本进不了城
         for (int s = -1; s <= 1; s += 2)
         {
             Vector3 side = (g1 - g0).normalized;
-            Vector3 pos = gm + side * (s * span * 0.27f) + inward * (WallT * 0.5f);
+            Vector3 pos = gm + side * (s * span * 0.42f);
             AppendBox(verts, cols, tris, new Vector3(pos.x, GroundY + 2.2f, pos.z),
-                      new Vector3(span * 0.5f, 4.4f, 0.4f), rot, Wood, WoodDark);
+                      new Vector3(span * 0.14f, 4.4f, WallT * 0.9f), rot, StoneDark, StoneDark);
         }
 
         Markers.Add(new MapMarker { name = name, x = gm.x, z = gm.z, kind = 0 });
@@ -785,16 +785,16 @@ public static class MondstadtTown
             AppendSphere(verts, cols, tris, p + Vector3.up * 5.35f, 0.6f, Gold, 6);
         }
 
-        // 城墙内侧、外圈民居之外种一行行道树（粉绿交替）
-        float[] treeDegs = { 22f, 68f, 128f, 166f, 200f, 260f, 320f, 344f };
-        for (int i = 0; i < treeDegs.Length; i++)
+        // 城墙脚下的花坛：贴着墙根摆一圈小花，不占民居的位置也不会长到屋顶上去
+        for (int i = 0; i < 8; i++)
         {
-            Vector3 p = SpotAt(47.5f, treeDegs[i]);
-            if (!TryReserve(p.x, p.z, 1.6f)) { _rejectedCount++; continue; }
+            float deg = i * 45f + 20f;
+            Vector3 p = SpotAt(50f, deg);
+            if (!TryReserve(p.x, p.z, 0.7f)) { _rejectedCount++; continue; }
 
-            AppendCylinder(verts, cols, tris, p, 4.2f, 0.5f, 0.35f, 6, WoodDark);
-            AppendSphere(verts, cols, tris, p + Vector3.up * 5.0f, 1.9f, (i % 2 == 0) ? Leaf : Blossom, 8);
-            AppendSphere(verts, cols, tris, p + Vector3.up * 5.9f, 1.35f, (i % 2 == 0) ? Leaf : Blossom, 7);
+            AppendCylinder(verts, cols, tris, p, 0.45f, 1.1f, 1.0f, 8, StoneDark);
+            AppendSphere(verts, cols, tris, p + Vector3.up * 0.75f, 0.8f,
+                         (i % 2 == 0) ? Leaf : Blossom, 7);
         }
     }
 
@@ -808,17 +808,17 @@ public static class MondstadtTown
         int placed = 0, tried = 0;
 
         // 半径 / 候选槽位数 / 起始角 / 抖动 / 面宽范围 / 进深范围
-        // 半径是按"外接圆 + 余量"和广场 / 环路 / 城墙的可用宽度算出来的：
-        //   内圈 22.3：17(广场) + 4.3 ≈ 21.3 到 30-2.4-4.3 ≈ 23.3 之间
-        //   外圈 38.6：30+2.4+5.3 ≈ 37.7 到 54-2.1-5.3 ≈ 46.6 之间（取靠内的位置，把外面留给地标 / 风车 / 树）
-        float[] rings  = { 22.3f, 38.6f };
+        // 半径按"屋顶外接圆 + 余量"和广场 / 环路 / 城墙的可用宽度算：
+        //   内圈 23.3（小房子）：17(广场)+4.3 ≈ 21.3 到 32-2.4-4.3 ≈ 25.3 之间
+        //   外圈 42.5：32+2.4+6.3 ≈ 40.7 到 54-2.1-6.3 ≈ 45.6 之间（外面那圈留给地标 / 风车 / 花坛）
+        float[] rings  = { 23.3f, 42.5f };
         int[]   counts = { 16, 20 };
         float[] starts = { 6f, 2f };
-        float[] jitter = { 0.4f, 0.7f };
-        float[] minW   = { 4.6f, 5.4f };
-        float[] maxW   = { 5.4f, 6.6f };
-        float[] minD   = { 5.0f, 6.0f };
-        float[] maxD   = { 5.8f, 7.4f };
+        float[] jitter = { 0.5f, 1.0f };
+        float[] minW   = { 4.2f, 5.4f };
+        float[] maxW   = { 4.8f, 6.6f };
+        float[] minD   = { 4.6f, 6.0f };
+        float[] maxD   = { 5.2f, 7.4f };
 
         for (int ring = 0; ring < rings.Length; ring++)
         {
@@ -836,7 +836,10 @@ public static class MondstadtTown
                 int   floors = (Hash01(slot * 3 + 1, ring, 41) > 0.72f) ? 2 : 1;
                 float h = 4.2f + (floors - 1) * 2.8f;
 
-                float clear = 0.5f * Mathf.Sqrt(w * w + d * d) + 0.35f;   // 外接圆 + 一点点余量（留太多会挤掉邻居）
+                // 间隙用"屋顶"的外接圆算：屋顶比墙体还宽（出檐 18%~20%），
+                // 只按墙体算的话两栋相邻房子的屋檐会互相插进去
+                float roofW = w * 1.18f, roofD = d * 1.2f;
+                float clear = 0.5f * Mathf.Sqrt(roofW * roofW + roofD * roofD) + 0.35f;
                 tried++;
                 if (!TryReserve(p.x, p.z, clear)) { _rejectedCount++; continue; }
 

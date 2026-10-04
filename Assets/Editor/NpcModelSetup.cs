@@ -11,9 +11,9 @@ using UnityEngine;
 /// 导入的剪辑若是 Legacy（进不了状态机）会顺手修正；站立 / 走 / 跑 顺手勾上"循环播放"（默认只播一次，走两步就僵住）。
 /// 模型换新或导入设置变化后：菜单手点一次，或脚本重载时自动补一次。
 ///
-/// 注意：状态机里保留 Downed（倒地）与 Hit（挨打）两个状态，但 VoxelNpc 目前只驱动 0 站立 / 1 走 / 2 跑：
-/// 倒地姿势改成代码里绕脚底刚性倒下（保证完整播完、不会停半路），挨打动作会打断走 / 跑循环所以暂时停用。
-/// 以后要恢复这两段动画，只要让 VoxelNpc.MotionState() 重新返回 3 / 4 即可，控制器不用重建。
+/// 注意：状态机里保留 Downed（倒地）与 Hit（挨打）两个状态，但 VoxelNpc 目前只驱动 0 站立 / 1 走 / 2 跑 / 3 倒地：
+/// 挨打动作会打断走 / 跑循环，暂时停用；倒地播模型自带的倒地剪辑（单次播完停在最后一帧）。
+/// 控制器文件被删掉 / 名字对不上时，这里会在脚本重载时自动重建；重建好之前 VoxelNpc 会用方块小人顶着，不会报错。
 /// </summary>
 public static class NpcModelSetup
 {
@@ -58,7 +58,7 @@ public static class NpcModelSetup
         },
     };
 
-    const string AttemptsKey = "NpcModelSetup.Attempts";
+    const string AttemptsKey = "NpcModelSetup.Attempts.v2";   // 换过 key：旧控制器要重建成"每个状态的剪辑名都对得上"的版本
     const string ReportedKey = "NpcModelSetup.ClipLoopsReported";
 
     static string ModelPath(NpcModel m)      => "Assets/Resources/" + m.modelKey + ".fbx";
@@ -120,6 +120,18 @@ public static class NpcModelSetup
             var state = machine.AddState(pair[0]);
             state.motion = clip;
             states.Add(state);
+
+            // ★ 站立 / 走 / 跑再补一条"自己转回自己"的过渡（播到片尾就重新开始）：
+            //   就算剪辑的"循环播放"没勾上、或者导入设置被改回去，动作也一定是循环的，
+            //   不会播一次就僵在原地
+            if (LoopsByDefault(pair[0]))
+            {
+                var loop = state.AddTransition(state);
+                loop.hasExitTime   = true;
+                loop.exitTime      = 0.99f;
+                loop.hasFixedDuration = true;
+                loop.duration      = 0f;
+            }
         }
 
         if (states.Count == 0)
@@ -146,7 +158,15 @@ public static class NpcModelSetup
         }
 
         AssetDatabase.SaveAssets();
-        Debug.Log($"[NpcModelSetup] {model.name}：已生成 {controllerPath}，状态：{string.Join(" / ", states.Select(s => s.name))}；" +
+
+        // 把"状态 → 实际绑的剪辑 → 是否循环"打进日志，下次直接在 Editor.log 里核对
+        var mapping = states.Select(s =>
+        {
+            var c = s.motion as AnimationClip;
+            string loops = LoopsByDefault(s.name) ? "循环" : "单次";
+            return $"{s.name} → {(c != null ? c.name : "(空)")}[{loops}]";
+        });
+        Debug.Log($"[NpcModelSetup] {model.name}：已生成 {controllerPath}；状态映射：{string.Join("，", mapping)}；" +
                   $"模型里的剪辑：{string.Join(", ", clips.Select(c => c.name))}");
 
         VerifyRuntimeAssets(model);
@@ -173,6 +193,8 @@ public static class NpcModelSetup
 
         for (int i = 0; i < clips.Length; i++)
         {
+            if (clips[i].name.StartsWith("__", System.StringComparison.Ordinal)) continue;   // 导入器的单帧预览剪辑，别管
+
             int state = StateOf(model, clips[i].name);
             if (state < 0) continue;                                  // 表里没提到的剪辑（jump 等）保持原样
 
@@ -304,8 +326,10 @@ public static class NpcModelSetup
         };
     }
 
-    /// <summary>控制器存在、状态数对得上、且默认状态绑上了非 Legacy 的动作，才算能用。
-    /// 状态数要按"模型里实际找得到的动作"算，缺动作的 NPC（比如孙琰没有挨打动作）才不会反复重建</summary>
+    /// <summary>控制器存在、状态数对得上、每个状态绑的剪辑名字也对得上，才算能用。
+    /// 状态数要按"模型里实际找得到的动作"算，缺动作的 NPC（比如孙琰没有挨打动作）才不会反复重建。
+    /// ★ 剪辑名必须逐个核对：模型重新导入后剪辑子资源的引用有可能错位，症状就是
+    ///   "走路只播一次然后僵住"（其实播的是别的单次剪辑），这时必须重建控制器。</summary>
     static bool IsControllerUsable(NpcModel model)
     {
         var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath(model));
@@ -314,8 +338,39 @@ public static class NpcModelSetup
         var machine = controller.layers[0].stateMachine;
         if (machine.states.Length != ResolvableStateCount(model)) return false;
 
+        if (!StatesMatchClips(model, machine)) return false;
+
         var motion = machine.defaultState != null ? machine.defaultState.motion as AnimationClip : null;
         return motion != null && !motion.legacy;
+    }
+
+    /// <summary>每个状态上挂的剪辑名，必须和表里那组候选名对得上</summary>
+    static bool StatesMatchClips(NpcModel model, AnimatorStateMachine machine)
+    {
+        foreach (var child in machine.states)
+        {
+            var state = child.state;
+            var clip = state.motion as AnimationClip;
+            if (clip == null) return false;
+
+            int index = StateIndexOf(model, state.name);
+            if (index < 0) return false;
+
+            if (!MatchesName(clip.name, model.states[index].Skip(1).ToArray()))
+            {
+                Debug.LogWarning($"[NpcModelSetup] {model.name} 的状态 {state.name} 绑到了「{clip.name}」，" +
+                                 $"期望的是 {string.Join(" / ", model.states[index].Skip(1))} —— 需要重建控制器。");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static int StateIndexOf(NpcModel model, string stateName)
+    {
+        for (int i = 0; i < model.states.Length; i++)
+            if (model.states[i][0] == stateName) return i;
+        return -1;
     }
 
     /// <summary>模型的动画必须是 Mecanim 导入方式（Legacy 剪辑进不了 AnimatorController）</summary>
@@ -378,15 +433,25 @@ public static class NpcModelSetup
         Debug.Log($"[NpcModelSetup] {model.name}：已把 glTFast 的动画方式改成 Mecanim 并重新导入。");
     }
 
-    /// <summary>先精确匹配，再容忍导入器给剪辑加的前后缀</summary>
+    /// <summary>先精确匹配，再容忍导入器给剪辑加的前后缀。
+    /// ★ 必须先把 "__preview__*" 这类预览剪辑排除掉：那是导入器生成的单帧预览，
+    ///   一旦被模糊匹配选中，动作就会"播一次然后僵住"——走 / 跑不循环的真正原因就是这个。
+    ///   同时优先选名字最短的那个，避免后缀更长的干扰剪辑被选中。</summary>
     static AnimationClip FindClip(List<AnimationClip> clips, string name)
     {
-        var clip = clips.FirstOrDefault(c => c.name == name)
-                ?? clips.FirstOrDefault(c => string.Equals(c.name, name, System.StringComparison.OrdinalIgnoreCase));
+        string want = name.ToLowerInvariant();
+
+        var real = clips.Where(c => !c.name.StartsWith("__", System.StringComparison.Ordinal))
+                        .OrderBy(c => c.name.Length)
+                        .ToList();
+        if (real.Count == 0) real = clips.ToList();      // 万一整个模型只有预览剪辑，退回原列表
+
+        var clip = real.FirstOrDefault(c => c.name == name)
+                ?? real.FirstOrDefault(c => string.Equals(c.name, name, System.StringComparison.OrdinalIgnoreCase));
         if (clip != null) return clip;
 
-        return clips.FirstOrDefault(c => c.name.ToLowerInvariant().EndsWith(name.ToLowerInvariant()))
-            ?? clips.FirstOrDefault(c => c.name.ToLowerInvariant().Contains(name.ToLowerInvariant()));
+        return real.FirstOrDefault(c => c.name.ToLowerInvariant().EndsWith(want))
+            ?? real.FirstOrDefault(c => c.name.ToLowerInvariant().Contains(want));
     }
 
     static void EnsureFolder(string assetFolder)

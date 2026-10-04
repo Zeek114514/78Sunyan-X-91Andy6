@@ -64,8 +64,9 @@ public class OpenWorld : MonoBehaviour
                 + 1.4f * Mathf.Sin(x * 0.071f + 2.1f) * Mathf.Sin(z * 0.061f + 0.6f)
                 + 0.7f * Mathf.Sin(x * 0.13f + z * 0.11f);
 
-        // 东北方向一排矮山，给远景一个轮廓
-        float ridge = Mathf.Clamp01((x + z - 300f) / 160f);
+        // 东北方向一排矮山，给远景一个轮廓。
+        // 起点放到 380 米以外：不然城东（大教堂高台外侧）的地面会被抬到 10 米以上，把东桥埋进土里
+        float ridge = Mathf.Clamp01((x + z - 380f) / 160f);
         h += ridge * ridge * 22f;
 
         // 西边一个湖盆
@@ -98,11 +99,17 @@ public class OpenWorld : MonoBehaviour
         float cat = Mathf.Clamp01(1f - (Mathf.Sqrt(cdx * cdx + cdz * cdz) - MondstadtTown.CathedralR) / 12f);
         h = Mathf.Lerp(h, MondstadtTown.CathedralY, cat);
 
-        // 环城护城河：城岛外面挖一圈水，让城变成湖心岛（最后执行，所以它能压过前面的抬升）
-        float wIn  = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(MondstadtTown.MoatInner, MondstadtTown.MoatInner + 7f, md));
-        float wOut = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(MondstadtTown.MoatOuter, MondstadtTown.MoatOuter - 6f, md));
+        // 环城护城河：城岛外面挖一圈水，让城变成湖心岛（最后执行，所以它能压过前面的抬升）。
+        // 河面要够宽、内岸要够贴近城墙，否则城岛外那圈地面会被自然起伏顶到 8 米以上、把两岸的桥埋掉
+        float wIn  = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(MondstadtTown.MoatInner - 3f, MondstadtTown.MoatInner + 1f, md));
+        float wOut = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(MondstadtTown.MoatOuter + 3f, MondstadtTown.MoatOuter - 1f, md));
         float moat = Mathf.Min(wIn, wOut);
         if (moat > 0f) h = Mathf.Lerp(h, 0.5f, moat);
+
+        // 南桥桥面下那一小段地：压到桥面以下，免得地面从桥面里冒出来（只在桥正下方那一条，看不见）
+        if (Mathf.Abs(x - MondstadtTown.CenterX) < 5.5f &&
+            z > MondstadtTown.SouthBridgeZ + 3f && z < MondstadtTown.SouthBridgeZ + 16f)
+            h = Mathf.Min(h, 7.4f);
 
         return Mathf.Max(h, -1f);
     }
@@ -115,6 +122,21 @@ public class OpenWorld : MonoBehaviour
 
     /// <summary>成林的密度（0~1）：树和地图上画森林都用它</summary>
     public static float ForestDensity(float x, float z) => Mathf.PerlinNoise(x * 0.018f, z * 0.018f);
+
+    /// <summary>这一点离木栈桥码头那条线有多近（近到 margin 以内就不种树，免得树从栈道上长出来）</summary>
+    static bool NearDock(float x, float z, float margin)
+    {
+        float a = MondstadtTown.DockDeg * Mathf.Deg2Rad;
+        var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+        var from = new Vector2(MondstadtTown.CenterX, MondstadtTown.CenterZ);
+        var p = new Vector2(x, z) - from;
+
+        float along = Vector2.Dot(p, dir);
+        if (along < MondstadtTown.IslandR - 6f) return false;                        // 还没到岸边
+        if (along > MondstadtTown.IslandR + MondstadtTown.DockLen + 10f) return false;
+
+        return (p - dir * along).magnitude < margin;
+    }
 
     /// <summary>按世界坐标取地面高度（NPC / 掉落物落地用）</summary>
     public float SurfaceY(float x, float z) => Height(Mathf.Clamp(x, 0f, Size), Mathf.Clamp(z, 0f, Size));
@@ -149,10 +171,10 @@ public class OpenWorld : MonoBehaviour
         _terrainMaterial.SetTexture("_RockMap",  Resources.Load<Texture2D>("MatStoneWall"));
         _terrainMaterial.SetTexture("_SandMap",  Resources.Load<Texture2D>("MatSand"));
 
-        // 二次元风的贴图权重：贴图只留很轻的颗粒感，画面主要吃顶点色的平涂色块
+        // 二次元风的贴图权重：贴图只留很轻的颗粒感（0.10），画面基本是顶点色的平涂色块
         _terrainMaterial.SetFloat("_TexScale", 0.35f);
         _terrainMaterial.SetFloat("_TexGain",  1.12f);
-        _terrainMaterial.SetFloat("_Detail",   0.22f);
+        _terrainMaterial.SetFloat("_Detail",   0.10f);
 
         // 城的墙体 / 屋顶：顶点色 × 单张贴图（石墙、瓦片）
         var texShader = Resources.Load<Shader>("Shaders/TexUnlit");
@@ -272,7 +294,9 @@ public class OpenWorld : MonoBehaviour
                                      Height(x, z - d) - Height(x, z + d)).normalized;
 
         float y = Height(x, z);
-        float rock = Mathf.SmoothStep(0.16f, 0.34f, 1f - normal.y);                  // 越陡越像岩石
+        // 阈值调高：只有真正的陡坡才混岩石贴图，缓坡保持草地色，
+        // 免得草原上到处是灰紫色斑块（岩石贴图偏冷色，混到绿地上很脏）
+        float rock = Mathf.SmoothStep(0.30f, 0.52f, 1f - normal.y);
         float sand = Mathf.SmoothStep(WaterLevel + 1.2f, WaterLevel + 0.2f, y);      // 越靠水面越像沙滩
 
         return new Vector2(rock, sand);
@@ -350,6 +374,7 @@ public class OpenWorld : MonoBehaviour
                 if (Mathf.Abs(z - MondstadtTown.CenterZ) < 7f &&
                     x > MondstadtTown.CenterX + MondstadtTown.WallR - 4f &&
                     x < MondstadtTown.EastBridgeFarX + 4f) continue;                     // 东桥桥面
+                if (NearDock(x, z, 7f)) continue;                                        // 木栈桥码头那一条
 
                 // 成簇的树：低频噪声决定这一片密不密 → 大片开阔草地夹着树丛（蒙德郊外那种）
                 float grove = ForestDensity(x, z);

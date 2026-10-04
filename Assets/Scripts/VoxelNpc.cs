@@ -54,8 +54,6 @@ public class VoxelNpc : MonoBehaviour
     const float HungerRegenPerSecond = 2f;      // 原地不动时的回饱食度速度（缓慢）
     const float SprintMultiplier     = 1.6f;    // 冲刺 = 走路速度 ×1.6（和追原石的小跑一样）
     const float GetUpHealth          = 5f;      // 血回到这个数以上就从倒地状态起来
-    const float FallSeconds          = 0.45f;   // 从站着到完全躺平要多久（刚性木板倒下）
-    const float GetUpSeconds         = 0.35f;   // 从躺平回到站立要多久
 
     /// <summary>这一帧在干什么（每帧重算，见 DecideState）</summary>
     enum NpcState { Idle, Walk, Gem, Chase, Flee, Retreat, Starve, Downed }
@@ -67,13 +65,11 @@ public class VoxelNpc : MonoBehaviour
     Transform _labelTop;               // 名牌锚点（方块头顶 / 模型头顶）
     Transform _leftArm, _rightArm, _leftLeg, _rightLeg;
     Animator _animator;                // 模型自带动画；用方块外形时为空
-    Transform _modelPivot;             // 模型根节点（脚底在原点），倒地时绕它转
     Camera _camera;
     GUIStyle _label;
 
-    // 动画状态机参数：0 站立 / 1 走 / 2 跑
-    // （控制器里还留着 3 倒地 / 4 挨打两个状态，但暂时不驱动：倒地改成程序化刚性倒下，
-    //   挨打动画会影响走跑循环、看着像动作播到一半被掐断，所以先停用）
+    // 动画状态机参数：0 站立 / 1 走 / 2 跑 / 3 倒地
+    // （控制器里还留着 4 挨打状态，但暂时不驱动：挨打动画会打断走 / 跑循环，看着像动作播到一半被掐断）
     static readonly int MotionParam = Animator.StringToHash("Motion");
 
     Vector2Int _home;              // 游荡中心（出生位置）
@@ -98,7 +94,7 @@ public class VoxelNpc : MonoBehaviour
     float _noDamageTime;           // 距上次受伤过了多久
     float _attackCooldown;
     float _starveTime;             // 饿到原地不动站了多久
-    float _fallT;                  // 倒地进度：0 = 站着，1 = 完全躺平
+    string _lastClipName;          // 自检用：上一次看到的播放剪辑名
     bool _fleeing;                 // 躲避开关（两个阈值做迟滞，免得来回抖）
     bool _downAnnounced;           // 倒地播报只发一次，起身时清掉
 
@@ -188,7 +184,7 @@ public class VoxelNpc : MonoBehaviour
 
         switch (_state)
         {
-            case NpcState.Downed:  DownedStep(dt);  break;
+            case NpcState.Downed:  DownedStep();    break;
             case NpcState.Flee:    FleeStep(dt);    break;
             case NpcState.Retreat: RetreatStep(dt); break;
             case NpcState.Chase:   ChaseStep(dt);   break;
@@ -197,10 +193,6 @@ public class VoxelNpc : MonoBehaviour
             case NpcState.Walk:    WalkStep();      break;
             default:               IdleStep();      break;
         }
-
-        // 没倒地就把躺平的进度倒着收回去，血缓过来时会自己站起来
-        if (_state != NpcState.Downed && _fallT > 0f)
-            _fallT = Mathf.Max(0f, _fallT - dt / GetUpSeconds);
 
         // 刚决定走开时说一声，方便一眼看出这是打倒之后的反应
         if (_state == NpcState.Retreat && previous != NpcState.Retreat)
@@ -430,15 +422,13 @@ public class VoxelNpc : MonoBehaviour
 
     // ---------- 倒地 ----------
 
-    /// <summary>倒地：躺在原地不动，整个人像一块木板一样刚性往后仰倒；
-    /// 血回到 5 点以上自动起身（姿势回正）</summary>
-    void DownedStep(float dt)
+    /// <summary>倒地：躺在原地不动，播模型自带的倒地动画（defeat / fall，单次播完停在最后一帧），
+    /// 血回到 5 点以上自动起身</summary>
+    void DownedStep()
     {
         _walking = false;
         _fleeing = false;
         _gem = null;
-
-        _fallT = Mathf.Min(1f, _fallT + dt / FallSeconds);
     }
 
     /// <summary>两点之间的水平距离（追击 / 躲避都按这个算）</summary>
@@ -617,7 +607,7 @@ public class VoxelNpc : MonoBehaviour
         if (_animator != null)
         {
             _animator.SetInteger(MotionParam, MotionState());
-            ApplyFallPose();
+            LogClipIfChanged();
             return;
         }
 
@@ -639,20 +629,41 @@ public class VoxelNpc : MonoBehaviour
             _leftArm.localRotation  = Quaternion.Euler( arm, 0f, 0f);
             _rightArm.localRotation = Quaternion.Euler(-arm, 0f, 0f);
         }
-
-        ApplyFallPose();
     }
 
-    /// <summary>倒地姿势：绕脚底枢轴把整个人当木板往后仰倒（0° → -90°），完全由代码驱动，
-    /// 所以一定从头到尾播完，不会像剪辑那样停在半路；起身时反向收回来。
-    /// 枢轴在脚底，所以人不会穿进地里。</summary>
-    void ApplyFallPose()
+    /// <summary>自检用：实际播放的剪辑变了就写一条日志。
+    /// 一眼就能看出"走 / 跑到底绑的是哪段剪辑"，出事时不用猜。</summary>
+    void LogClipIfChanged()
     {
-        Transform root = _modelPivot != null ? _modelPivot : _voxelBody;
-        if (root == null) return;
+        if (Time.frameCount % 20 != 0) return;      // 每 0.3 秒查一次
 
-        float t = _fallT * _fallT;            // 起手慢、越倒越快，像真的失去平衡
-        root.localRotation = Quaternion.Euler(-90f * t, 0f, 0f);
+        string clip = CurrentClipName();
+        if (clip == _lastClipName) return;
+
+        _lastClipName = clip;
+        Debug.Log($"[VoxelNpc] {displayName} Motion={MotionState()} 实际播放剪辑「{clip}」" +
+                  $"（该状态期望：{ExpectedClipHint(MotionState())}）");
+    }
+
+    /// <summary>当前正在播的剪辑名（拿不到就返回"(无)"）</summary>
+    string CurrentClipName()
+    {
+        if (_animator == null) return "(无)";
+        var infos = _animator.GetCurrentAnimatorClipInfo(0);
+        if (infos.Length == 0 || infos[0].clip == null) return "(无)";
+        return infos[0].clip.name;
+    }
+
+    static string ExpectedClipHint(int motion)
+    {
+        switch (motion)
+        {
+            case 1:  return "走路";
+            case 2:  return "跑步";
+            case 3:  return "倒地";
+            case 4:  return "挨打";
+            default: return "站立";
+        }
     }
 
     /// <summary>这一帧腿脚在动吗（走 / 捡原石 / 追 / 逃 / 走开 都算）</summary>
@@ -660,13 +671,13 @@ public class VoxelNpc : MonoBehaviour
         _state == NpcState.Walk || _state == NpcState.Gem ||
         _state == NpcState.Chase || _state == NpcState.Flee || _state == NpcState.Retreat;
 
-    /// <summary>当前该播哪一段：0 站立 / 1 走 / 2 跑。
-    /// 倒地姿势不走动画（由 ApplyFallPose 刚性旋转），挨打动画暂时停用</summary>
+    /// <summary>当前该播哪一段：0 站立 / 1 走 / 2 跑 / 3 倒地。
+    /// 倒地播模型自带的倒地剪辑（单次播完停在最后一帧）；挨打动画暂时停用（会打断走 / 跑循环）</summary>
     int MotionState()
     {
         switch (_state)
         {
-            case NpcState.Downed:  return 0;
+            case NpcState.Downed:  return 3;
             case NpcState.Chase:   return Sprinting ? 2 : 1;
             case NpcState.Flee:    return _fleeFrom != null && _fleeFrom.Chasing ? 2 : 1;
             case NpcState.Retreat: return 1;      // 走开着用走的
@@ -778,32 +789,24 @@ public class VoxelNpc : MonoBehaviour
             return;
         }
 
-        // 模型挂在一个"脚底枢轴"下面：枢轴原点就是 NPC 脚下，倒地时绕它旋转，
-        // 人的脚不会插进地里，也不会绕着自己的腰打转
-        _modelPivot = new GameObject("ModelPivot").transform;
-        _modelPivot.SetParent(transform, false);
-        _modelPivot.localPosition = Vector3.zero;
-        _modelPivot.localRotation = Quaternion.identity;
-
-        var model = Instantiate(prefab, _modelPivot);
+        var model = Instantiate(prefab, transform);
         model.name = "Model";
         model.transform.localPosition = Vector3.zero;
         model.transform.localRotation = Quaternion.Euler(0f, modelYawOffset, 0f);
         model.transform.localScale = Vector3.one;
 
-        // 量出模型自己的高度：缩放到设定身高，再把脚底对到枢轴原点（枢轴就在地面上）
+        // 量出模型自己的高度：缩放到设定身高，再把脚底对到 NPC 原点（原点就在地面上）
         Bounds bounds;
         if (!TryGetBounds(model, out bounds))
         {
             Debug.LogWarning($"[VoxelNpc] Resources/{modelResourcePath} 里没有可渲染的网格，{displayName} 继续用方块小人。");
-            Destroy(_modelPivot.gameObject);
-            _modelPivot = null;
+            Destroy(model);
             return;
         }
 
         float scale = modelHeight / Mathf.Max(bounds.size.y, 0.001f);
         model.transform.localScale = Vector3.one * scale;
-        model.transform.localPosition = new Vector3(0f, (_modelPivot.position.y - bounds.min.y) * scale, 0f);
+        model.transform.localPosition = new Vector3(0f, (transform.position.y - bounds.min.y) * scale, 0f);
         float scaledHeight = bounds.size.y * scale;
 
         // 模型自带的 Animator 在根节点上（剪辑路径相对它算），控制器也挂在根上
@@ -812,6 +815,11 @@ public class VoxelNpc : MonoBehaviour
         _animator.runtimeAnimatorController = controller;
         _animator.applyRootMotion = false;      // 位移交给角色控制器，动画只管姿势
         _animator.SetInteger(MotionParam, MotionState());
+
+        Debug.Log($"[VoxelNpc] {displayName} 动画就绪：Animator={(_animator != null ? "有" : "无")}，" +
+                  $"Avatar={(_animator != null && _animator.avatar != null ? "有" : "无")}，" +
+                  $"控制器剪辑数={(controller.animationClips != null ? controller.animationClips.Length : 0)}，" +
+                  $"当前剪辑={CurrentClipName()}");
 
         // glTFast 的 PBR 材质在团结引擎的 URP 上会渲染成金属感 + 破碎高光，
         // 换成引擎自带的 URP/Lit：保留模型的底色贴图，法线/金属度细节舍弃
