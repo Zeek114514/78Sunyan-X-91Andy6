@@ -186,7 +186,7 @@ public class VoxelHud : MonoBehaviour
         }
         else
         {
-            line1 = "WASD 移动    Shift 疾跑    空格 跳跃    Q 丢掉手上的道具";
+            line1 = "WASD 移动    Shift 疾跑    空格 跳跃    左键 攻击    Q 丢掉手上的道具";
             line2 = "T 对话框    P 祈愿    M 世界地图    滚轮 换道具    Esc 释放鼠标";
         }
 

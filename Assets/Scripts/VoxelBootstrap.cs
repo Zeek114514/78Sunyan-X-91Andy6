@@ -69,21 +69,28 @@ public static class VoxelBootstrap
         // ---------- 6. 世界地图 / 小地图（左上角小地图常驻，M 键开大地图）----------
         playerGo.AddComponent<WorldMap>().Init(world, playerGo.transform);
 
+        // ---------- 6.5 玩家普攻（鼠标左键，用来打野外怪）----------
+        playerGo.AddComponent<VoxelCombat>().Init(cam.transform);
+
         // ---------- 6. 对话框（必须在 VoxelStats 之后添加，Init 里会去找它）----------
         playerGo.AddComponent<VoxelChat>().Init(player);
 
         // ---------- 7. 抽卡页面（按 P 开关；目前只有界面，卡池内容待定）----------
         playerGo.AddComponent<VoxelGacha>().Init(interaction);
 
+        // ---------- 7.5 野外怪：丘丘人 / 史莱姆 + 丘丘人营地（分布用固定哈希，见 MonsterSpawner）----------
+        var spawnerGo = new GameObject("MonsterSpawner");
+        spawnerGo.AddComponent<MonsterSpawner>().Init(world, playerGo.transform, interaction);
+
         // ---------- 8. NPC：出生点附近的两个小人，数据在 VoxelNpcData 里 ----------
         SpawnNpc("NpcSunYan", VoxelNpcData.SunYan(),   3,   3, 0f, world, playerGo.transform);
         SpawnNpc("NpcAndy",   VoxelNpcData.Andy(),   -10, -10, 3f, world, playerGo.transform);
 
-        Debug.Log("[VoxelDemo] 开放世界生成完毕，点击画面开始游玩。WASD 移动 / 空格 跳跃 / Q 丢道具，" +
+        Debug.Log("[VoxelDemo] 开放世界生成完毕，点击画面开始游玩。WASD 移动 / 空格 跳跃 / 左键 攻击 / Q 丢道具，" +
                   "T 对话框，P 祈愿，M 世界地图，/fly 飞行，/eat 恢复饱食度。");
     }
 
-    /// <summary>按数据在出生点附近生成一个 NPC；落点在水里就往旁边挪，找块干地站。
+    /// <summary>按数据在出生点附近生成一个 NPC；落点在水边就往旁边挪，找块干地站。
     /// spawnHeight 是离地高度：给 0 直接站在地面上，给正数就从空中落下</summary>
     static void SpawnNpc(string goName, VoxelNpcData data, float offsetX, float offsetZ, float spawnHeight,
                          OpenWorld world, Transform player)
@@ -92,9 +99,10 @@ public static class VoxelBootstrap
         float x = spawn.x + offsetX;
         float z = spawn.z + offsetZ;
 
-        for (int i = 0; i < 8 && OpenWorld.IsDeepWater(x, z); i++)
+        // 落在水边 / 水里就往旁边挪（和 NPC 走路时的避水规则同一个余量）
+        for (int i = 0; i < 10 && OpenWorld.Height(x, z) < OpenWorld.WaterLevel + 1f; i++)
         {
-            x -= 2f;      // 落点在水里，挪到旁边再试
+            x -= 2f;
             z += 2f;
         }
 

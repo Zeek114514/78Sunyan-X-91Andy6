@@ -4,6 +4,7 @@ Shader "Voxel/Demo"
 {
     Properties
     {
+        _Tint     ("受击染色（默认白；怪物被打时打红）", Color) = (1,1,1,1)
         _FogColor ("Fog Color", Color) = (0.62, 0.82, 0.94, 1)
         _FogStart ("Fog Start", Float) = 34
         _FogEnd   ("Fog End",   Float) = 96
@@ -32,6 +33,7 @@ Shader "Voxel/Demo"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
+                float4 _Tint;
                 float4 _FogColor;
                 float  _FogStart;
                 float  _FogEnd;
@@ -64,7 +66,8 @@ Shader "Voxel/Demo"
 
             half4 frag(Varyings IN) : SV_Target
             {
-                float3 c = lerp(IN.color, _FogColor.rgb, IN.fogFactor);
+                // 顶点色先乘受击染色（默认白色 = 不变），再压雾
+                float3 c = lerp(IN.color * _Tint.rgb, _FogColor.rgb, IN.fogFactor);
                 return half4(c, 1.0);
             }
             ENDHLSL

@@ -54,9 +54,10 @@ public class VoxelNpc : MonoBehaviour
     const float HungerRegenPerSecond = 2f;      // 原地不动时的回饱食度速度（缓慢）
     const float SprintMultiplier     = 1.6f;    // 冲刺 = 走路速度 ×1.6（和追原石的小跑一样）
     const float GetUpHealth          = 5f;      // 血回到这个数以上就从倒地状态起来
+    const float WaterAvoidMargin     = 0.8f;    // 离水面这么近就当作"水边"：NPC 不往里走，免得走进湖里出不来
 
     /// <summary>这一帧在干什么（每帧重算，见 DecideState）</summary>
-    enum NpcState { Idle, Walk, Gem, Chase, Flee, Retreat, Starve, Downed }
+    enum NpcState { Idle, Walk, Gem, Chase, Flee, Retreat, Starve, Ashore, Downed }
 
     OpenWorld _world;
     Transform _player;
@@ -185,6 +186,7 @@ public class VoxelNpc : MonoBehaviour
         switch (_state)
         {
             case NpcState.Downed:  DownedStep();    break;
+            case NpcState.Ashore:  AshoreStep(dt);  break;
             case NpcState.Flee:    FleeStep(dt);    break;
             case NpcState.Retreat: RetreatStep(dt); break;
             case NpcState.Chase:   ChaseStep(dt);   break;
@@ -203,11 +205,14 @@ public class VoxelNpc : MonoBehaviour
 
     // ---------- 状态机 ----------
 
-    /// <summary>这一帧干什么：倒地 &gt; 走开 &gt; 躲避 &gt; 追击 &gt; 饱食度过低 &gt; 捡原石 &gt; 游荡 / 发呆</summary>
+    /// <summary>这一帧干什么：倒地 &gt; 上岸 &gt; 走开 &gt; 躲避 &gt; 追击 &gt; 饱食度过低 &gt; 捡原石 &gt; 游荡 / 发呆</summary>
     NpcState DecideState(float dt)
     {
         // 血量没回到 5 点以上就一直躺着
         if (_health < GetUpHealth) return NpcState.Downed;
+
+        // 站在水里 / 水边：先想办法上岸，别的事都往后放
+        if (NearWater(transform.position.x, transform.position.z, 0.35f)) return NpcState.Ashore;
 
         // 追击目标被打倒了：先离他远一点（至少 retreatRange），别守在人家旁边
         if (_chaseTarget != null && _chaseTarget.Downed &&
@@ -563,7 +568,7 @@ public class VoxelNpc : MonoBehaviour
             if (!OpenWorld.InBounds(x + 0.5f, z + 0.5f)) continue;
 
             float gy = _world.SurfaceY(x + 0.5f, z + 0.5f);
-            if (OpenWorld.IsDeepWater(x + 0.5f, z + 0.5f)) continue;    // 别往水里走
+            if (NearWater(x + 0.5f, z + 0.5f, WaterAvoidMargin * 2f)) continue;   // 别往水边去
             if (OpenWorld.Slope(x + 0.5f, z + 0.5f) > 0.4f) continue;   // 太陡的坡上不去
             if (Mathf.Abs(gy - transform.position.y) > 2.5f) continue;  // 落差太大不去
 
@@ -575,15 +580,68 @@ public class VoxelNpc : MonoBehaviour
         _idleTimer = Random.Range(1f, 3f);   // 一时没找到合适的地方，歇会再想
     }
 
-    /// <summary>这一点现在能不能走：不是深水、不算陡坡，上升不超过 1 米、下落不超过 2 米</summary>
+    /// <summary>这一点现在能不能走：不是水边、不算陡坡，上升不超过 1 米、下落不超过 2 米</summary>
     bool Walkable(int x, int z)
     {
         if (!OpenWorld.InBounds(x + 0.5f, z + 0.5f)) return false;
-        if (OpenWorld.IsDeepWater(x + 0.5f, z + 0.5f)) return false;
+        if (NearWater(x + 0.5f, z + 0.5f, WaterAvoidMargin)) return false;
         if (OpenWorld.Slope(x + 0.5f, z + 0.5f) > 0.4f) return false;
 
         float gy = _world.SurfaceY(x + 0.5f, z + 0.5f);
         return gy - transform.position.y <= 1.2f && transform.position.y - gy <= 2.2f;
+    }
+
+    /// <summary>这一带算不算"水边"：水面 + margin 以内都算，四个方向各探一点，
+    /// 免得出现"站在岸上、下一步就是水"的情况。
+    /// 自己已经站在桥面这类高处（比水面高 1.5 米以上）时不算 —— 否则他们连桥都不敢过。</summary>
+    bool NearWater(float x, float z, float margin)
+    {
+        if (transform.position.y > OpenWorld.WaterLevel + 1.5f) return false;
+
+        if (OpenWorld.Height(x, z) < OpenWorld.WaterLevel + margin) return true;
+
+        const float probe = 1.5f;
+        return OpenWorld.Height(x + probe, z) < OpenWorld.WaterLevel + margin
+            || OpenWorld.Height(x - probe, z) < OpenWorld.WaterLevel + margin
+            || OpenWorld.Height(x, z + probe) < OpenWorld.WaterLevel + margin
+            || OpenWorld.Height(x, z - probe) < OpenWorld.WaterLevel + margin;
+    }
+
+    /// <summary>站在水里 / 水边过不去了：朝"8 个方向里地势最高"的那个方向走出来（相当于爬上岸）。
+    /// 八个方向都不比脚下高就朝城的方向走，那边一定是干的。</summary>
+    void AshoreStep(float dt)
+    {
+        Vector3 pos = transform.position;
+        Vector3 best = Vector3.zero;
+        float bestH = OpenWorld.Height(pos.x, pos.z);
+
+        for (int i = 0; i < 8; i++)
+        {
+            float a = i * Mathf.PI * 0.25f;
+            float px = pos.x + Mathf.Cos(a) * 2.5f;
+            float pz = pos.z + Mathf.Sin(a) * 2.5f;
+            if (!OpenWorld.InBounds(px, pz)) continue;
+
+            float hh = OpenWorld.Height(px, pz);
+            if (hh > bestH + 0.05f)
+            {
+                bestH = hh;
+                best = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+            }
+        }
+
+        if (best == Vector3.zero)
+        {
+            best = new Vector3(MondstadtTown.CenterX - pos.x, 0f, MondstadtTown.CenterZ - pos.z);
+            if (best.sqrMagnitude < 0.01f) best = Vector3.forward;
+            best.Normalize();
+        }
+
+        _controller.Move(best * (walkSpeed * 1.3f) * dt);   // 上岸时走快一点，别在水边磨蹭
+        TurnToward(best, 8f);
+
+        _walking = false;
+        _gem = null;
     }
 
     void TurnToward(Vector3 dir, float speed)
@@ -666,9 +724,9 @@ public class VoxelNpc : MonoBehaviour
         }
     }
 
-    /// <summary>这一帧腿脚在动吗（走 / 捡原石 / 追 / 逃 / 走开 都算）</summary>
+    /// <summary>这一帧腿脚在动吗（走 / 捡原石 / 追 / 逃 / 走开 / 上岸 都算）</summary>
     bool Moving =>
-        _state == NpcState.Walk || _state == NpcState.Gem ||
+        _state == NpcState.Walk || _state == NpcState.Gem || _state == NpcState.Ashore ||
         _state == NpcState.Chase || _state == NpcState.Flee || _state == NpcState.Retreat;
 
     /// <summary>当前该播哪一段：0 站立 / 1 走 / 2 跑 / 3 倒地。
@@ -678,6 +736,7 @@ public class VoxelNpc : MonoBehaviour
         switch (_state)
         {
             case NpcState.Downed:  return 3;
+            case NpcState.Ashore:  return 1;
             case NpcState.Chase:   return Sprinting ? 2 : 1;
             case NpcState.Flee:    return _fleeFrom != null && _fleeFrom.Chasing ? 2 : 1;
             case NpcState.Retreat: return 1;      // 走开着用走的

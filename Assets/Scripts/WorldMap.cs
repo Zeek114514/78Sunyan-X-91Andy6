@@ -255,6 +255,7 @@ public class WorldMap : MonoBehaviour
             case 5:  return new Color(0.95f, 0.58f, 0.38f);   // 酒馆
             case 6:  return new Color(0.78f, 0.52f, 0.32f);   // 铁匠铺
             case 7:  return new Color(0.72f, 0.76f, 0.84f);   // 瞭望塔
+            case 9:  return new Color(0.92f, 0.42f, 0.36f);   // 丘丘人营地（红色 = 有怪）
             default: return new Color(0.55f, 0.78f, 0.90f);   // 码头
         }
     }
