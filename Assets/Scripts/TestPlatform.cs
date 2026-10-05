@@ -5,10 +5,13 @@ using UnityEngine.Rendering;
 /// <summary>
 /// 测试用浮空大平台：一座 120 × 44 米的悬空平台，高度 120 米（纯浮空，底下只有装饰岩体）。
 /// 左边 5 排共 50 个孙琰、右边 5 排共 50 个 Andy，玩家一进游戏就被传送到平台上。
-/// 这 100 个 NPC 的机制和地面上的孙琰 / Andy 完全一样（存在感、追人、打人、躲避、饥饿、存粮全都照旧），
-/// 也都能在平台上自由走动；区别只有一条：quiet = true，不往聊天栏刷"谁打了谁一下"这类播报
-/// （50 对同时打起来每秒几十条）。追人 / 躲避都取"离自己最近"的那个同类，
-/// 否则 50 个孙琰会全去追 Find() 返回的同一个 Andy。
+/// 这 100 个 NPC 的机制和地面上的孙琰 / Andy 一样（追人、打人、躲避、饥饿、存粮全都照旧），
+/// 也都能在平台上自由走动。针对"测试平台"额外调了三处：
+///  · 孙琰的追击距离放开到整块平台（地面版只有 10 米，两边隔着约 19 米，加上 Andy 一跑就拉开，
+///    大部分孙琰会脱战去游荡）—— 现在 50 个孙琰都会一直追着 Andy 打；
+///  · 孙琰的存粮给足，饿了立刻吃一口接着追，不会追一会儿就站在那儿；
+///  · quiet = true，不往聊天栏刷"谁打了谁一下"这类播报（50 对同时打每秒几十条）。
+/// 追人 / 躲避都取"离自己最近"的那个同类，否则 50 个孙琰会全去追 Find() 返回的同一个 Andy。
 /// </summary>
 public class TestPlatform : MonoBehaviour
 {
@@ -40,7 +43,7 @@ public class TestPlatform : MonoBehaviour
 
         Debug.Log($"[TestPlatform] 浮空平台建好：中心 ({_center.x:0}, {_center.y:0}, {_center.z:0})，" +
                   $"平台 {PlatformW} × {PlatformD} 米；孙琰 {LeftCount} 个 + Andy {RightCount} 个 = {spawned} 个，" +
-                  $"机制与地面 NPC 一致（追打 / 躲避 / 饥饿，quiet 不刷播报），可在平台上自由走动。");
+                  $"机制与地面 NPC 一致；孙琰追击距离已放开、存粮给足（全部都会追着 Andy 打），quiet 不刷播报。");
     }
 
     // ---------- 阵型 ----------
@@ -56,12 +59,12 @@ public class TestPlatform : MonoBehaviour
             {
                 // 左边：孙琰（从平台中线往左铺）
                 Vector3 left = _center + new Vector3(-BlockX + col * ColStep, 0.15f, -8.8f + row * RowStep);
-                SpawnOne("NpcSunYan_" + row + "_" + col, VoxelNpcData.SunYan(), left, world, player);
+                SpawnOne("NpcSunYan_" + row + "_" + col, VoxelNpcData.SunYan(), left, world, player, true);
                 count++;
 
                 // 右边：Andy（镜像）
                 Vector3 right = _center + new Vector3(BlockX - col * ColStep, 0.15f, -8.8f + row * RowStep);
-                SpawnOne("NpcAndy_" + row + "_" + col, VoxelNpcData.Andy(), right, world, player);
+                SpawnOne("NpcAndy_" + row + "_" + col, VoxelNpcData.Andy(), right, world, player, false);
                 count++;
             }
         }
@@ -69,15 +72,23 @@ public class TestPlatform : MonoBehaviour
         return count;
     }
 
-    void SpawnOne(string goName, VoxelNpcData data, Vector3 pos, OpenWorld world, Transform player)
+    /// <summary>chaser = true 是孙琰（会一直追着 Andy 打），false 是 Andy（会躲）</summary>
+    void SpawnOne(string goName, VoxelNpcData data, Vector3 pos, OpenWorld world, Transform player, bool chaser)
     {
-        // 和地面上的孙琰 / Andy 完全同一套机制：该追的追、该打的打、该躲的躲，饥饿与存粮也照旧。
-        // 只做两处必要调整：
+        // 和地面上的孙琰 / Andy 同一套机制：该追的追、该打的打、该躲的躲，饥饿与存粮也照旧。
+        // 为了让"所有孙琰都追着 Andy 打"（而不是追两下就散开去游荡），对测试版做三处调整：
         //  · holdPosition 关掉 —— 不然站着不动，就不是"走来走去"了
-        //  · quiet 打开 —— 机制不变，只是不刷"谁打了谁一下"这类播报；
-        //    50 对同时打起来每秒几十条，会把聊天栏刷爆
+        //  · quiet 打开 —— 机制不变，只是不刷"谁打了谁一下"这类播报；50 对同时打每秒几十条
+        //  · 孙琰的追击距离放开到全平台、存粮给足 —— 原来追击只有 10 米，两边隔着约 19 米，
+        //    加上 Andy 一跑就拉开，大部分孙琰会脱战；存粮给足则饿了立刻吃一口接着追，不会中途站着
         data.holdPosition = false;
         data.quiet        = true;
+
+        if (chaser)
+        {
+            data.chaseRange = 999f;
+            data.startGems  = 999999;
+        }
 
         var go = new GameObject(goName);
         go.transform.position = pos;
