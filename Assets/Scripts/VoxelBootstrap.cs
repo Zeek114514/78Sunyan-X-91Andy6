@@ -86,24 +86,14 @@ public static class VoxelBootstrap
         SpawnNpc("NpcSunYan", VoxelNpcData.SunYan(),   3,   3, 0f, world, playerGo.transform);
         SpawnNpc("NpcAndy",   VoxelNpcData.Andy(),   -10, -10, 3f, world, playerGo.transform);
 
-        // ---------- 9. 测试用浮空大平台：左 50 个孙琰 / 右 50 个 Andy，各站 5 排，玩家直接被传送上去 ----------
-        var platformGo = new GameObject("TestPlatform");
-        var platform = platformGo.AddComponent<TestPlatform>();
-        platform.Init(world, playerGo.transform);
-        TeleportPlayer(playerGo, platform.PlayerSpawnPoint);
+        // 注：浮空测试平台（左右各 50 个 NPC）已经撤掉，脚本 Assets/Scripts/TestPlatform.cs 保留着，
+        // 以后要再压测 100 个角色，把下面三行取消注释即可（玩家会被传送到平台上）：
+        // var platformGo = new GameObject("TestPlatform");
+        // var platform = platformGo.AddComponent<TestPlatform>();
+        // platform.Init(world, playerGo.transform); 然后 TeleportPlayer(playerGo, platform.PlayerSpawnPoint);
 
         Debug.Log("[VoxelDemo] 开放世界生成完毕，点击画面开始游玩。WASD 移动 / 空格 跳跃 / 左键 攻击 / Q 丢道具，" +
-                  "T 对话框，P 祈愿，M 世界地图，/fly 飞行，/eat 恢复饱食度。" +
-                  "（本局出生在浮空测试平台上：左 50 孙琰 / 右 50 Andy）");
-    }
-
-    /// <summary>把玩家瞬移到指定位置（先关掉 CharacterController 再瞬移，免得被物理推回去）</summary>
-    static void TeleportPlayer(GameObject playerGo, Vector3 pos)
-    {
-        var cc = playerGo.GetComponent<CharacterController>();
-        if (cc != null) cc.enabled = false;
-        playerGo.transform.position = pos;
-        if (cc != null) cc.enabled = true;
+                  "T 对话框，P 祈愿，M 世界地图，/fly 飞行，/eat 恢复饱食度。");
     }
 
     /// <summary>按数据在出生点附近生成一个 NPC；落点在水边就往旁边挪，找块干地站。
