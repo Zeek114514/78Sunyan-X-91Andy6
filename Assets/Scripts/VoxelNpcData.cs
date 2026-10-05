@@ -52,6 +52,11 @@ public class VoxelNpcData
     /// 浮空测试平台上那 100 个阵型 NPC 用它保持队形。</summary>
     public bool holdPosition = false;
 
+    /// <summary>（测试用）不刷播报：机制照旧（照样追打 / 躲避 / 吃原石），只是不往对话框里刷
+    /// "谁打了谁一下""谁被打倒了"这类文字。测试平台上 100 个 NPC 互相追打时用它，
+    /// 否则每秒几十条播报会把聊天栏刷满。</summary>
+    public bool quiet = false;
+
     /// <summary>孙琰：默认值就是他本人的数据；有饥饿条、会捡原石，身上带着 1600 原石，看见 Andy 就追</summary>
     public static VoxelNpcData SunYan()
     {

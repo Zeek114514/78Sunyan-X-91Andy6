@@ -5,8 +5,10 @@ using UnityEngine.Rendering;
 /// <summary>
 /// 测试用浮空大平台：一座 120 × 44 米的悬空平台，高度 120 米（纯浮空，底下只有装饰岩体）。
 /// 左边 5 排共 50 个孙琰、右边 5 排共 50 个 Andy，玩家一进游戏就被传送到平台上。
-/// 这 100 个 NPC 会在平台上自由走动（关掉饥饿 / 捡原石 / 互相追打，只保留游荡 AI），
-/// 队形只保证出生时整齐；一次性看 100 个角色的模型 / 走跑动画 / 性能。
+/// 这 100 个 NPC 的机制和地面上的孙琰 / Andy 完全一样（存在感、追人、打人、躲避、饥饿、存粮全都照旧），
+/// 也都能在平台上自由走动；区别只有一条：quiet = true，不往聊天栏刷"谁打了谁一下"这类播报
+/// （50 对同时打起来每秒几十条）。追人 / 躲避都取"离自己最近"的那个同类，
+/// 否则 50 个孙琰会全去追 Find() 返回的同一个 Andy。
 /// </summary>
 public class TestPlatform : MonoBehaviour
 {
@@ -37,7 +39,8 @@ public class TestPlatform : MonoBehaviour
         MondstadtTown.Markers.Add(new MondstadtTown.MapMarker { name = "测试平台（100 个 NPC）", x = _center.x, z = _center.z, kind = 13 });
 
         Debug.Log($"[TestPlatform] 浮空平台建好：中心 ({_center.x:0}, {_center.y:0}, {_center.z:0})，" +
-                  $"平台 {PlatformW} × {PlatformD} 米；孙琰 {LeftCount} 个 + Andy {RightCount} 个 = {spawned} 个 NPC（在平台上自由走动）。");
+                  $"平台 {PlatformW} × {PlatformD} 米；孙琰 {LeftCount} 个 + Andy {RightCount} 个 = {spawned} 个，" +
+                  $"机制与地面 NPC 一致（追打 / 躲避 / 饥饿，quiet 不刷播报），可在平台上自由走动。");
     }
 
     // ---------- 阵型 ----------
@@ -68,15 +71,13 @@ public class TestPlatform : MonoBehaviour
 
     void SpawnOne(string goName, VoxelNpcData data, Vector3 pos, OpenWorld world, Transform player)
     {
-        // 让它们在平台上自由走动：
-        //  · holdPosition 关掉（不再是站桩）
-        //  · 关饥饿 / 关捡原石：否则走一会儿就会饿到原地不动、或者去追平台上根本没有的原石
-        //  · 关追人 / 关躲人：100 个互相追打会一直刷战斗播报、还会把队形搅成一团
+        // 和地面上的孙琰 / Andy 完全同一套机制：该追的追、该打的打、该躲的躲，饥饿与存粮也照旧。
+        // 只做两处必要调整：
+        //  · holdPosition 关掉 —— 不然站着不动，就不是"走来走去"了
+        //  · quiet 打开 —— 机制不变，只是不刷"谁打了谁一下"这类播报；
+        //    50 对同时打起来每秒几十条，会把聊天栏刷爆
         data.holdPosition = false;
-        data.usesHunger   = false;
-        data.seekGems     = false;
-        data.chaseTargetName = "";
-        data.fleeFromName    = "";
+        data.quiet        = true;
 
         var go = new GameObject(goName);
         go.transform.position = pos;

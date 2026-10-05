@@ -158,6 +158,31 @@ public class VoxelNpc : MonoBehaviour
         return null;
     }
 
+    /// <summary>按名字找"离我最近"的那个同类。
+    /// 场上同名很多时（测试平台上 50 个孙琰 / 50 个 Andy）必须用它：
+    /// 不然大家都会去追 Find() 返回的第一个，50 个孙琰全挤在一个 Andy 身上。</summary>
+    public static VoxelNpc FindNearest(string displayName, Vector3 from)
+    {
+        VoxelNpc best = null;
+        float bestDist = float.MaxValue;
+
+        for (int i = 0; i < All.Count; i++)
+        {
+            if (All[i].data.displayName != displayName) continue;
+
+            float d = (All[i].transform.position - from).sqrMagnitude;
+            if (d < bestDist) { bestDist = d; best = All[i]; }
+        }
+        return best;
+    }
+
+    /// <summary>说一句话（写进对话框）。quiet 的 NPC（测试平台上那 100 个）不刷屏</summary>
+    void Say(string message)
+    {
+        if (data != null && data.quiet) return;
+        VoxelChat.Announce(message);
+    }
+
     /// <summary>被打：扣血并重新开始算回血倒计时；打到 0 就倒地不动</summary>
     public void TakeDamage(float amount, string cause)
     {
@@ -165,7 +190,7 @@ public class VoxelNpc : MonoBehaviour
 
         _health = Mathf.Max(0f, _health - amount);
         _noDamageTime = 0f;
-        VoxelChat.Announce(cause + " 打了 " + displayName + " 一下（生命 -" + amount.ToString("F0") +
+        Say(cause + " 打了 " + displayName + " 一下（生命 -" + amount.ToString("F0") +
                            "，剩 " + _health.ToString("F0") + "）");
 
         if (_health <= 0f)
@@ -174,7 +199,7 @@ public class VoxelNpc : MonoBehaviour
             _walking = false;
             _fleeing = false;
             _gem = null;
-            VoxelChat.Announce(displayName + " 被打倒了，倒地不动");
+            Say(displayName + " 被打倒了，倒地不动");
         }
     }
 
@@ -208,7 +233,7 @@ public class VoxelNpc : MonoBehaviour
 
         // 刚决定走开时说一声，方便一眼看出这是打倒之后的反应
         if (_state == NpcState.Retreat && previous != NpcState.Retreat)
-            VoxelChat.Announce(displayName + " 转身走开了");
+            Say(displayName + " 转身走开了");
 
         Animate();
     }
@@ -281,10 +306,11 @@ public class VoxelNpc : MonoBehaviour
     /// <summary>数据里写的追击 / 躲避目标，按名字在场上找（生成顺序不定，找到就一直用）</summary>
     void ResolveOthers()
     {
+        // 找"离自己最近"的那个：场上同名很多时（测试平台上各 50 个）才不会全部挤在同一个身上
         if (_chaseTarget == null && !string.IsNullOrEmpty(data.chaseTargetName))
-            _chaseTarget = Find(data.chaseTargetName);
+            _chaseTarget = FindNearest(data.chaseTargetName, transform.position);
         if (_fleeFrom == null && !string.IsNullOrEmpty(data.fleeFromName))
-            _fleeFrom = Find(data.fleeFromName);
+            _fleeFrom = FindNearest(data.fleeFromName, transform.position);
     }
 
     // ---------- 生存 ----------
@@ -300,7 +326,7 @@ public class VoxelNpc : MonoBehaviour
         if (_downAnnounced && _health >= GetUpHealth)
         {
             _downAnnounced = false;
-            VoxelChat.Announce(displayName + " 缓过来了，又站了起来");
+            Say(displayName + " 缓过来了，又站了起来");
         }
     }
 
@@ -323,7 +349,7 @@ public class VoxelNpc : MonoBehaviour
         _hunger = Mathf.Clamp(value, 0f, data.maxHunger);
 
         if (couldChase && _hunger < LowHungerFloor && _gems < EatGemCost)
-            VoxelChat.Announce(displayName + " 饿得追不动了，原石不够换体力，先原地歇着");
+            Say(displayName + " 饿得追不动了，原石不够换体力，先原地歇着");
     }
 
     // ---------- 追击 ----------
@@ -425,7 +451,7 @@ public class VoxelNpc : MonoBehaviour
         {
             _gems -= EatGemCost;
             SetHunger(_hunger + GemHungerValue);
-            VoxelChat.Announce(displayName + " 花 " + EatGemCost + " 原石换了点体力（饱食度 +" +
+            Say(displayName + " 花 " + EatGemCost + " 原石换了点体力（饱食度 +" +
                                GemHungerValue.ToString("F0") + "，还剩 " + _gems + " 原石）");
             return;
         }
@@ -483,7 +509,7 @@ public class VoxelNpc : MonoBehaviour
                 _gem = null;
                 _gems++;
                 _idleTimer = Random.Range(1f, 2.5f);
-                VoxelChat.Announce(displayName + " 捡走了一颗原石");
+                Say(displayName + " 捡走了一颗原石");
             }
             else
             {
