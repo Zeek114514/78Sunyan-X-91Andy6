@@ -881,86 +881,248 @@ public static class MondstadtTown
     {
         float cx = CathedralX, cz = CathedralZ, y0 = CathedralY;
 
-        // 高台上的神职人员聚落：石阶 + 广场铺地
-        AppendRing(verts, cols, tris, new Vector3(cx, y0 + 0.05f, cz), 0f, CathedralR - 4f, 28, Quaternion.identity, StoneDark);
-        // 朝向城心（西）的台阶
-        for (int k = 0; k < 4; k++)
-            AppendBox(verts, cols, tris, new Vector3(cx - CathedralR + 2f + k * 1.6f, y0 + 0.25f + k * 0.25f, cz),
-                      new Vector3(1.8f, 0.5f, 16f), Quaternion.identity, Stone, StoneDark);
+        // ---------- 尺度（后面全按这套算）----------
+        const float wallT = 1.4f, wallH = 16f, floorY = 0.9f;   // 墙厚 / 墙高 / 室内地面抬高
+        float x0 = cx - 13f, x1 = cx + 13f;                     // 外墙外沿 260 / 286
+        float z0 = cz - 17f, z1 = cz + 17f;                     // 188 / 222
+        float ix0 = x0 + wallT, ix1 = x1 - wallT;               // 内墙面
+        float iz0 = z0 + wallT, iz1 = z1 - wallT;
+        float fTop = y0 + floorY;                               // 室内地面高度
 
-        // 主殿：面朝西，十字平面
-        float w = 20f, d = 30f, h = 17f;
-        var rot = Quaternion.identity;
-        AppendBox(verts, cols, tris, new Vector3(cx + 2f, y0 + h * 0.5f, cz), new Vector3(w, h, d), rot, Stone, StoneDark);
-        AppendBox(verts, cols, tris, new Vector3(cx + 2f, y0 + h * 0.42f, cz + d * 0.16f),
-                  new Vector3(w * 1.42f, h * 0.84f, d * 0.34f), rot, Stone, StoneDark);
-        AppendGable(verts, cols, tris, new Vector3(cx + 2f, y0 + h, cz), w * 1.04f, d * 1.05f, 8.0f, rot, Roof);
-        AppendGable(verts, cols, tris, new Vector3(cx + 2f, y0 + h * 0.84f, cz + d * 0.16f), w * 1.45f, d * 0.4f, 6.0f, rot, RoofAlt);
+        // 铺装用"平涂色"（走顶点色材质）：石墙贴图是按世界坐标取 UV 的，
+        // 在水平面上采样只剩一条纹路（看着像木地板），所以广场 / 室内地面改用干净的平涂色，墙面仍用贴图
+        Color paveFlat  = new Color32(0xcf, 0xc8, 0xb6, 255);
+        Color floorFlat = new Color32(0xc2, 0xba, 0xa8, 255);
+        Color floorDark = new Color32(0xac, 0xa4, 0x94, 255);
 
-        // 正立面（朝西）：玫瑰窗 + 两侧尖拱窗 + 大门
-        // 玫瑰窗以前是个"平放的圆柱"（鼓出来一截），现在改成竖起来的圆盘，正面看才是圆的
-        float front = cx + 2f - w * 0.5f;
-        AppendRing(verts, cols, tris, new Vector3(front - 0.22f, y0 + 11.6f, cz), 2.0f, 3.0f, 20,
+        // ---------- 1. 前庭：参道 + 门前广场 + 花坛 + 路灯 + 喷泉 + 台缘护栏 ----------
+        float pathX0 = EastBridgeFarX;            // 230：东桥落点
+        float plazaX0 = x0 - 9f, plazaX1 = x0;    // 门前广场
+
+        // 参道（桥落点 → 广场）
+        AppendBox(verts, cols, tris, new Vector3((pathX0 + plazaX0) * 0.5f, y0 + 0.04f, cz),
+                  new Vector3(plazaX0 - pathX0, 0.08f, 9f), Quaternion.identity, paveFlat, paveFlat);
+        // 门前广场（比参道宽）
+        AppendBox(verts, cols, tris, new Vector3((plazaX0 + plazaX1) * 0.5f, y0 + 0.10f, cz),
+                  new Vector3(plazaX1 - plazaX0, 0.08f, 24f), Quaternion.identity, paveFlat, paveFlat);
+
+        // 参道两侧的路灯
+        for (int i = 0; i < 4; i++)
+        {
+            float x = pathX0 + 3f + i * 6f;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                Vector3 p = new Vector3(x, y0, cz + s * 4.2f);
+                AppendCylinder(verts, cols, tris, p, 3.6f, 0.26f, 0.2f, 6, Wood, true);
+                AppendSphere(verts, cols, tris, p + Vector3.up * 3.85f, 0.5f, Gold, 6);
+            }
+        }
+
+        // 参道外侧的花坛（四块，各带一棵树）
+        for (int s = -1; s <= 1; s += 2)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                Vector3 bed = new Vector3(pathX0 + 5f + i * 9f, y0, cz + s * 8f);
+                AppendBox(verts, cols, tris, bed + Vector3.up * 0.22f, new Vector3(5f, 0.44f, 5.5f),
+                          Quaternion.identity, StoneDark, StoneDark);
+                AppendBox(verts, cols, tris, bed + Vector3.up * 0.5f, new Vector3(4.4f, 0.2f, 4.9f),
+                          Quaternion.identity, Leaf, Leaf);
+                AppendCylinder(verts, cols, tris, bed + Vector3.up * 0.5f, 3.6f, 0.5f, 0.34f, 6, WoodDark, true);
+                AppendSphere(verts, cols, tris, bed + Vector3.up * 4.6f, 1.9f, Leaf, 8);
+            }
+        }
+
+        // 广场北侧的小喷泉（石圈 + 水面 + 中柱 + 玻璃球）
+        Vector3 fc = new Vector3(plazaX0 + 4f, y0, cz + 7f);
+        AppendCylinder(verts, cols, tris, fc, 0.5f, 3.0f, 2.9f, 12, Stone, true);
+        AppendRing(verts, cols, tris, fc + Vector3.up * 0.52f, 0f, 2.7f, 16, Quaternion.identity, Water);
+        AppendCylinder(verts, cols, tris, fc, 1.9f, 0.55f, 0.4f, 8, StoneDark, true);
+        AppendSphere(verts, cols, tris, fc + Vector3.up * 2.3f, 0.5f, Glass, 8);
+
+        // 高台西缘的护栏（桥口两侧）：别让台缘看着像没做完的悬崖
+        for (int s = -1; s <= 1; s += 2)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                Vector3 p = new Vector3(pathX0 - 1.5f, y0, cz + s * 6f + s * i * 3.6f);
+                AppendBox(verts, cols, tris, p + Vector3.up * 0.85f, new Vector3(0.3f, 1.7f, 0.3f),
+                          Quaternion.identity, StoneDark, StoneDark);
+            }
+            AppendBox(verts, cols, tris, new Vector3(pathX0 - 1.5f, y0 + 1.5f, cz + s * 13.2f),
+                      new Vector3(0.28f, 0.28f, 15.5f), Quaternion.identity, Wood, Wood);
+        }
+
+        // ---------- 2. 门前台阶：对齐门洞、每级都从地面长起来（不再悬空错位）----------
+        const float stepD = 0.95f;
+        float stepX0 = x0 - stepD * 3f;
+        for (int k = 0; k < 3; k++)
+        {
+            float h = 0.3f * (k + 1);                       // 第 k 级：0.3 / 0.6 / 0.9 米高
+            AppendBox(verts, cols, tris, new Vector3(stepX0 + stepD * (k + 0.5f), y0 + h * 0.5f, cz),
+                      new Vector3(stepD, h, 12f), Quaternion.identity, floorFlat, floorDark);
+        }
+
+        // ---------- 3. 主体：外墙（西面留门洞）+ 抬高地面 + 天花板 + 双坡屋顶 ----------
+        float doorHalf = 5f, doorTopY = fTop + 8.1f;
+
+        // 南北墙
+        for (int s = -1; s <= 1; s += 2)
+        {
+            float z = (s < 0) ? z0 + wallT * 0.5f : z1 - wallT * 0.5f;
+            AppendBox(verts, cols, tris, new Vector3(cx, fTop + wallH * 0.5f, z),
+                      new Vector3(x1 - x0, wallH, wallT), Quaternion.identity, Stone, StoneDark);
+        }
+        // 东墙（后墙）
+        AppendBox(verts, cols, tris, new Vector3(x1 - wallT * 0.5f, fTop + wallH * 0.5f, cz),
+                  new Vector3(wallT, wallH, z1 - z0), Quaternion.identity, Stone, StoneDark);
+        // 西墙：门洞两侧两段 + 门楣以上的墙 + 门口拱券
+        {
+            float sideLen = (z1 - z0 - doorHalf * 2f) * 0.5f;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                float zc = cz + s * (doorHalf + sideLen * 0.5f);
+                AppendBox(verts, cols, tris, new Vector3(x0 + wallT * 0.5f, fTop + wallH * 0.5f, zc),
+                          new Vector3(wallT, wallH, sideLen), Quaternion.identity, Stone, StoneDark);
+            }
+
+            float lintelH = fTop + wallH - doorTopY;
+            if (lintelH > 0.1f)
+                AppendBox(verts, cols, tris, new Vector3(x0 + wallT * 0.5f, doorTopY + lintelH * 0.5f, cz),
+                          new Vector3(wallT, lintelH, doorHalf * 2f), Quaternion.identity, Stone, StoneDark);
+
+            for (int k = 0; k < 3; k++)
+                AppendBox(verts, cols, tris, new Vector3(x0 + wallT * 0.5f - 0.05f * k, doorTopY + 0.28f + k * 0.56f, cz),
+                          new Vector3(wallT + 0.1f * k, 0.56f, doorHalf * 2f * (1f - k * 0.2f)),
+                          Quaternion.identity, StoneDark, StoneDark);
+        }
+
+        // 室内地面（抬高 0.9）+ 天花板
+        AppendBox(verts, cols, tris, new Vector3(cx, y0 + floorY * 0.5f, cz),
+                  new Vector3(ix1 - ix0, floorY, iz1 - iz0), Quaternion.identity, floorFlat, floorDark);
+        AppendBox(verts, cols, tris, new Vector3(cx, fTop + wallH - 0.35f, cz),
+                  new Vector3(ix1 - ix0, 0.7f, iz1 - iz0), Quaternion.identity, floorDark, StoneDark);
+
+        // 双坡屋顶（盖住墙头）
+        AppendGable(verts, cols, tris, new Vector3(cx, fTop + wallH, cz),
+                    (x1 - x0) * 1.06f, (z1 - z0) * 1.05f, 7.5f, Quaternion.identity, Roof);
+
+        // ---------- 4. 里面：柱列 + 长椅 + 祭坛 + 烛火 ----------
+        for (int i = 0; i < 5; i++)
+        {
+            float z = iz0 + 4.5f + i * 6f;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                float x = cx + s * 7.2f;
+                AppendCylinder(verts, cols, tris, new Vector3(x, fTop, z), wallH - 2.4f, 0.95f, 0.8f, 8, Stone, true);
+                AppendBox(verts, cols, tris, new Vector3(x, fTop + wallH - 2.05f, z),
+                          new Vector3(2.6f, 0.6f, 2.6f), Quaternion.identity, StoneDark, StoneDark);
+            }
+        }
+
+        // 长椅（中央留走道，西半段四排）
+        for (int i = 0; i < 4; i++)
+        {
+            float z = iz0 + 5f + i * 4f;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                float x = cx + s * 5.4f;
+                AppendBox(verts, cols, tris, new Vector3(x, fTop + 0.55f, z), new Vector3(3.4f, 0.3f, 1.1f),
+                          Quaternion.identity, Wood, WoodDark);
+                AppendBox(verts, cols, tris, new Vector3(x, fTop + 1.0f, z + 0.5f), new Vector3(3.4f, 1.0f, 0.22f),
+                          Quaternion.identity, Wood, WoodDark);
+            }
+        }
+
+        // 祭坛：两级抬台 + 祭坛石 + 两侧烛火
+        for (int k = 0; k < 2; k++)
+            AppendBox(verts, cols, tris, new Vector3(ix1 - 3.4f + k * 1.5f, fTop + 0.3f * (k + 1), cz),
+                      new Vector3(3.0f, 0.6f * (k + 1), 17f), Quaternion.identity, floorFlat, floorDark);
+        AppendBox(verts, cols, tris, new Vector3(ix1 - 4.2f, fTop + 1.5f, cz), new Vector3(2.4f, 1.6f, 5.2f),
+                  Quaternion.identity, Gold, Gold);
+        for (int s = -1; s <= 1; s += 2)
+            AppendSphere(verts, cols, tris, new Vector3(ix1 - 5.4f, fTop + 2.2f, cz + s * 3.6f), 0.34f, Gold, 6);
+
+        // ---------- 5. 窗与门 ----------
+        // 南北墙各三扇高窗（亮蓝玻璃）
+        for (int s = -1; s <= 1; s += 2)
+        {
+            float z = (s < 0) ? z0 + wallT * 0.5f : z1 - wallT * 0.5f;
+            for (int i = -1; i <= 1; i++)
+            {
+                AppendBox(verts, cols, tris, new Vector3(cx + i * 7.5f, fTop + 8.6f, z),
+                          new Vector3(3.2f, 8.4f, wallT + 0.14f), Quaternion.identity, Glass, Glass);
+                AppendBox(verts, cols, tris, new Vector3(cx + i * 7.5f, fTop + 13.4f, z),
+                          new Vector3(1.5f, 1.5f, wallT + 0.14f), Quaternion.identity, Glass, Glass);
+            }
+        }
+        // 后墙大窗 + 正立面玫瑰窗 + 两侧尖拱窗 + 两扇半开的木门（中间留通路）
+        AppendBox(verts, cols, tris, new Vector3(x1 - wallT * 0.5f, fTop + 9f, cz),
+                  new Vector3(wallT + 0.14f, 11f, 6.4f), Quaternion.identity, Glass, Glass);
+        AppendRing(verts, cols, tris, new Vector3(x0 - 0.06f, fTop + 11.4f, cz), 2.0f, 3.1f, 20,
                    Quaternion.Euler(0f, 0f, 90f), Glass);
         for (int s = -1; s <= 1; s += 2)
         {
-            AppendBox(verts, cols, tris, new Vector3(front - 0.25f, y0 + 10.4f, cz + s * 6.2f),
-                      new Vector3(0.6f, 7.0f, 2.4f), rot, Window, Window);
-            // 尖拱窗的拱顶：贴平的一块过梁（以前是平放的小圆柱，会鼓出来）
-            AppendBox(verts, cols, tris, new Vector3(front - 0.25f, y0 + 14.1f, cz + s * 6.2f),
-                      new Vector3(0.6f, 1.5f, 2.4f), rot, Window, Window);
+            AppendBox(verts, cols, tris, new Vector3(x0 - 0.2f, fTop + 10.6f, cz + s * 8.4f),
+                      new Vector3(0.5f, 7.2f, 2.6f), Quaternion.identity, Window, Window);
+            AppendBox(verts, cols, tris, new Vector3(x0 + 0.2f, fTop + 3.4f, cz + s * (doorHalf - 1.0f)),
+                      new Vector3(0.35f, 6.4f, 2.1f), Yaw(s * 52f), Wood, WoodDark);
         }
-        AppendBox(verts, cols, tris, new Vector3(front - 1.2f, y0 + 3.6f, cz), new Vector3(1.6f, 7.2f, 5.0f), rot, Wood, WoodDark);
 
-        // 两侧飞扶壁
+        // ---------- 6. 飞扶壁（贴外墙，纯外形）----------
         for (int s = -1; s <= 1; s += 2)
         {
             for (int k = -1; k <= 1; k++)
             {
-                float z = cz + k * (d * 0.3f);
-                AppendBox(verts, cols, tris, new Vector3(cx + 2f + s * (w * 0.5f + 3.4f), y0 + 7.4f, z),
-                          new Vector3(2.0f, 14.8f, 2.2f), rot, StoneDark, StoneDark);
-                AppendBox(verts, cols, tris, new Vector3(cx + 2f + s * (w * 0.5f + 1.7f), y0 + 13.2f, z),
-                          new Vector3(3.4f, 1.2f, 2.0f), rot, Stone, StoneDark);
-                AppendBox(verts, cols, tris, new Vector3(cx + 2f + s * (w * 0.5f + 0.4f), y0 + 9.0f, z),
-                          new Vector3(0.6f, 6.0f, 2.0f), rot, Window, Window);
+                float z = cz + k * 10f;
+                AppendBox(verts, cols, tris, new Vector3(cx + s * 15.8f, y0 + 8.45f, z),
+                          new Vector3(2.2f, 16.9f, 2.4f), Quaternion.identity, StoneDark, StoneDark);
+                AppendBox(verts, cols, tris, new Vector3(cx + s * 14.3f, y0 + 16.2f, z),
+                          new Vector3(3.0f, 1.2f, 2.2f), Quaternion.identity, Stone, StoneDark);
             }
         }
 
-        // 钟塔：立在十字交叉处，塔身 + 百叶窗 + 环廊 + 收分的尖顶（参考图里最高的那座）
-        Vector3 tower = new Vector3(cx + 2f, y0, cz + d * 0.16f);
-        AppendCylinder(verts, cols, tris, tower, 32f, 6.2f, 4.0f, 10, Stone, true);
+        // ---------- 7. 西立面的大钟塔（罩在正门上方，参考图里最高的那座）----------
+        Vector3 tower = new Vector3(x0 + 4.6f, fTop + wallH, cz);
+
+        // 塔基两角的壁柱：站在室内地面上，位置在门洞两侧（不挡路）
+        for (int s = -1; s <= 1; s += 2)
+            AppendCylinder(verts, cols, tris, new Vector3(x0 + 2.0f, fTop, cz + s * 6.6f),
+                           wallH, 1.0f, 1.0f, 6, StoneDark, true);
+
+        AppendCylinder(verts, cols, tris, tower, 22f, 4.6f, 3.9f, 10, Stone, true);
         for (int s = 0; s < 4; s++)
         {
-            float a = s * Mathf.PI * 0.5f + 0.4f;
+            float a = s * Mathf.PI * 0.5f + Mathf.PI * 0.25f;
             Vector3 dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
             for (int k = 0; k < 2; k++)
-                AppendBox(verts, cols, tris, tower + Vector3.up * (22f + k * 5.5f) + dir * 3.1f,
-                          new Vector3(2.0f, 3.4f, 0.6f), Yaw(-a * Mathf.Rad2Deg + 90f), Window, Window);
+                AppendBox(verts, cols, tris, tower + Vector3.up * (7.5f + k * 7f) + dir * 3.4f,
+                          new Vector3(2.2f, 4.4f, 0.5f), Yaw(-a * Mathf.Rad2Deg + 90f), Window, Window);
         }
-        AppendCylinder(verts, cols, tris, tower + Vector3.up * 32f, 0.8f, 4.2f, 3.9f, 10, StoneDark, true);
+        AppendCylinder(verts, cols, tris, tower + Vector3.up * 22f, 0.8f, 5.0f, 4.6f, 10, StoneDark, true);
         for (int s = 0; s < 4; s++)
         {
             float a = s * Mathf.PI * 0.5f;
-            AppendBox(verts, cols, tris, tower + Vector3.up * 33.4f + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 4.4f,
+            AppendBox(verts, cols, tris, tower + Vector3.up * 23.4f + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 4.8f,
                       new Vector3(1.4f, 1.2f, 1.4f), Quaternion.identity, StoneDark, StoneDark);
         }
-        AppendCylinder(verts, cols, tris, tower + Vector3.up * 34.2f, 4.4f, 3.9f, 2.2f, 10, Stone, true);
-        AppendCylinder(verts, cols, tris, tower + Vector3.up * 38.6f, 7.5f, 2.2f, 0.15f, 10, Gold, true);
-        AppendSphere(verts, cols, tris, tower + Vector3.up * 46.4f, 0.9f, Gold, 8);
+        AppendCylinder(verts, cols, tris, tower + Vector3.up * 23.8f, 5.0f, 4.6f, 2.9f, 10, Stone, true);
+        AppendCylinder(verts, cols, tris, tower + Vector3.up * 28.8f, 8.6f, 2.9f, 0.15f, 10, Gold, true);
+        AppendSphere(verts, cols, tris, tower + Vector3.up * 38f, 0.85f, Gold, 8);
 
-        // 高台边上的几棵树（绿色树冠，不用粉色球）
+        // ---------- 8. 高台周边的树（避开前庭与殿堂）----------
         for (int i = 0; i < 6; i++)
         {
             float deg = 30f + i * 52f;
             float a = deg * Mathf.Deg2Rad;
             Vector3 p = new Vector3(cx + Mathf.Cos(a) * (CathedralR - 9f), y0, cz + Mathf.Sin(a) * (CathedralR - 9f));
+            if (p.x > pathX0 - 5f && p.x < x1 + 5f && Mathf.Abs(p.z - cz) < 22f) continue;   // 别挡着前庭和殿堂
             AppendCylinder(verts, cols, tris, p, 4.6f, 0.6f, 0.4f, 6, WoodDark, true);
             AppendSphere(verts, cols, tris, p + Vector3.up * 5.6f, 2.2f, Leaf, 8);
         }
 
         Markers.Add(new MapMarker { name = "大教堂", x = cx, z = cz, kind = 2 });
-        Blob(cx + 2f, cz, 17f, 1);
+        Blob(cx + 2f, cz, 16f, 1);
     }
 
     // ================= 自检 =================
