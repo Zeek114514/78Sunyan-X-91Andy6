@@ -59,6 +59,16 @@ public class VoxelNpc : MonoBehaviour
     /// <summary>这一帧在干什么（每帧重算，见 DecideState）</summary>
     enum NpcState { Idle, Walk, Gem, Chase, Flee, Retreat, Starve, Ashore, Downed }
 
+    // ---------- 限定活动区域（测试平台用）----------
+    // 平台悬在 120 米高空，世界地形在脚下 100 多米处，用世界地形判断根本走不动；
+    // 所以划一块"平台平面"给它们，在区域里只判边界，走的是平台自己的地板。
+    /// <summary>是否启用限定活动区域</summary>
+    public bool hasWalkArea;
+    /// <summary>区域中心（世界 XZ）</summary>
+    public Vector2 walkAreaCenter;
+    /// <summary>区域半宽 / 半深（米）</summary>
+    public Vector2 walkAreaHalf;
+
     OpenWorld _world;
     Transform _player;
     CharacterController _controller;
@@ -557,12 +567,24 @@ public class VoxelNpc : MonoBehaviour
         }
     }
 
-    /// <summary>决定下一步：四成概率发呆，否则去家附近挑个落脚点</summary>
+    /// <summary>决定下一步：四成概率发呆，否则挑个落脚点。
+    /// 划了"限定活动区域"（测试平台）就在平台平面里随便挑一个点走过去。</summary>
     void DecideNext()
     {
         if (Random.value < 0.4f)
         {
             _idleTimer = Random.Range(1.5f, 4f);
+            return;
+        }
+
+        if (hasWalkArea)
+        {
+            Vector2 p = walkAreaCenter + new Vector2(
+                Random.Range(-1f, 1f) * walkAreaHalf.x,
+                Random.Range(-1f, 1f) * walkAreaHalf.y);
+
+            _target = new Vector3(p.x, transform.position.y, p.y);   // 平台是平的，直接用当前高度
+            _walking = true;
             return;
         }
 
@@ -586,14 +608,21 @@ public class VoxelNpc : MonoBehaviour
         _idleTimer = Random.Range(1f, 3f);   // 一时没找到合适的地方，歇会再想
     }
 
-    /// <summary>这一点现在能不能走：不是水边、不算陡坡，上升不超过 1 米、下落不超过 2 米</summary>
+    /// <summary>这一点现在能不能走：不是水边、不算陡坡，上升不超过 1 米、下落不超过 2 米。
+    /// 划了"限定活动区域"（测试平台）就只判区域边界，不看世界地形。</summary>
     bool Walkable(int x, int z)
     {
-        if (!OpenWorld.InBounds(x + 0.5f, z + 0.5f)) return false;
-        if (NearWater(x + 0.5f, z + 0.5f, WaterAvoidMargin)) return false;
-        if (OpenWorld.Slope(x + 0.5f, z + 0.5f) > 0.4f) return false;
+        float fx = x + 0.5f, fz = z + 0.5f;
 
-        float gy = _world.SurfaceY(x + 0.5f, z + 0.5f);
+        if (hasWalkArea)
+            return Mathf.Abs(fx - walkAreaCenter.x) <= walkAreaHalf.x &&
+                   Mathf.Abs(fz - walkAreaCenter.y) <= walkAreaHalf.y;
+
+        if (!OpenWorld.InBounds(fx, fz)) return false;
+        if (NearWater(fx, fz, WaterAvoidMargin)) return false;
+        if (OpenWorld.Slope(fx, fz) > 0.4f) return false;
+
+        float gy = _world.SurfaceY(fx, fz);
         return gy - transform.position.y <= 1.2f && transform.position.y - gy <= 2.2f;
     }
 

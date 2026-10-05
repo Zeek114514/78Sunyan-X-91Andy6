@@ -4,9 +4,9 @@ using UnityEngine.Rendering;
 
 /// <summary>
 /// 测试用浮空大平台：一座 120 × 44 米的悬空平台，高度 120 米（纯浮空，底下只有装饰岩体）。
-/// 左边 5 排共 50 个孙琰、右边 5 排共 50 个 Andy，玩家一进游戏就被传送到平台上看它们。
-/// 这 100 个阵型 NPC 都是 holdPosition（站着不动），所以队形不会散，正好一次看 100 个角色的
-/// 模型 / 站立动画 / 性能；平台上还留了 120 米长的边距，方便跑起来看远近处的表现。
+/// 左边 5 排共 50 个孙琰、右边 5 排共 50 个 Andy，玩家一进游戏就被传送到平台上。
+/// 这 100 个 NPC 会在平台上自由走动（关掉饥饿 / 捡原石 / 互相追打，只保留游荡 AI），
+/// 队形只保证出生时整齐；一次性看 100 个角色的模型 / 走跑动画 / 性能。
 /// </summary>
 public class TestPlatform : MonoBehaviour
 {
@@ -19,7 +19,8 @@ public class TestPlatform : MonoBehaviour
     const float ColStep = 3.6f;                           // 列间距（沿 X）
     const float RowStep = 4.4f;                           // 排间距（沿 Z）
     const float BlockX  = 42f;                            // 阵型中心离平台中线多远
-    const float FacingYaw = 180f;                         // 全部朝 -Z 站（面向玩家传送点）
+    const float FacingYaw = 180f;                         // 出生时朝 -Z 站（面向玩家传送点）
+    const float PlatformW = 120f, PlatformD = 44f;        // 平台尺寸
 
     Vector3 _center;                                      // 平台中心（顶面高度）
 
@@ -36,7 +37,7 @@ public class TestPlatform : MonoBehaviour
         MondstadtTown.Markers.Add(new MondstadtTown.MapMarker { name = "测试平台（100 个 NPC）", x = _center.x, z = _center.z, kind = 13 });
 
         Debug.Log($"[TestPlatform] 浮空平台建好：中心 ({_center.x:0}, {_center.y:0}, {_center.z:0})，" +
-                  $"平台 120 × 44 米；孙琰 {LeftCount} 个 + Andy {RightCount} 个 = {spawned} 个阵型 NPC（全部 holdPosition）。");
+                  $"平台 {PlatformW} × {PlatformD} 米；孙琰 {LeftCount} 个 + Andy {RightCount} 个 = {spawned} 个 NPC（在平台上自由走动）。");
     }
 
     // ---------- 阵型 ----------
@@ -67,7 +68,15 @@ public class TestPlatform : MonoBehaviour
 
     void SpawnOne(string goName, VoxelNpcData data, Vector3 pos, OpenWorld world, Transform player)
     {
-        data.holdPosition = true;                    // 站着不动，保持队形
+        // 让它们在平台上自由走动：
+        //  · holdPosition 关掉（不再是站桩）
+        //  · 关饥饿 / 关捡原石：否则走一会儿就会饿到原地不动、或者去追平台上根本没有的原石
+        //  · 关追人 / 关躲人：100 个互相追打会一直刷战斗播报、还会把队形搅成一团
+        data.holdPosition = false;
+        data.usesHunger   = false;
+        data.seekGems     = false;
+        data.chaseTargetName = "";
+        data.fleeFromName    = "";
 
         var go = new GameObject(goName);
         go.transform.position = pos;
@@ -75,6 +84,12 @@ public class TestPlatform : MonoBehaviour
 
         var npc = go.AddComponent<VoxelNpc>();
         npc.data = data;
+
+        // 限定活动区域 = 平台平面（留 5 米边距，不会贴到栏杆上）
+        npc.hasWalkArea    = true;
+        npc.walkAreaCenter = new Vector2(_center.x, _center.z);
+        npc.walkAreaHalf   = new Vector2(PlatformW * 0.5f - 5f, PlatformD * 0.5f - 5f);
+
         npc.Init(world.Material, player, world);
     }
 
@@ -96,7 +111,7 @@ public class TestPlatform : MonoBehaviour
         Color rightC = new Color32(0xf0, 0x9a, 0x6a, 255);   // Andy 那半边
         Color wood   = new Color32(0x7c, 0x58, 0x3a, 255);
 
-        const float W = 120f, D = 44f;
+        const float W = PlatformW, D = PlatformD;
         float halfW = W * 0.5f, halfD = D * 0.5f;
 
         // 主甲板（顶面 y = 0）与底部收分
