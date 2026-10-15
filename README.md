@@ -104,11 +104,7 @@ ProjectSettings/
 
 ## 已知注意事项
 
-1. **`Packages/manifest.json` 里有一行本地依赖**：
-   ```json
-   "cn.tuanjie.ai.generators": "file:../.codely-cli/extensions/TJGenerators/Packages/cn.tuanjie.ai.generators"
-   ```
-   该路径属于 AI 资产生成工具的**本机安装目录，未纳入版本控制**。直接 clone 到别的机器会在 Package Manager 报错——把它删掉即可正常打开，运行时代码不依赖这个包。
+1. **AI 资产生成工具未包含在仓库里**。开发时用到的 Codely `TJGenerators` 扩展（提供一键生成 3D 模型 / 贴图 / 音效的编辑器工具）是**本机安装物，不随仓库发布**，其 `Packages/manifest.json` 依赖声明也已移除。**clone 后项目可直接打开运行**，运行时代码不依赖它；若想在本机恢复该工具，重新安装 Codely 的 TJGenerators 扩展即可（它会自动把依赖加回去）。
 2. **编辑器生成物未上传**（`Library/` `Temp/` `obj/` `Logs/` `UserSettings/` 等约 2.8 GB 已在 `.gitignore` 中忽略），clone 后需要让引擎重新导入一次。
 3. 项目中的部分 3D 模型与贴图为 **AI 生成工具产出**，非原创手绘素材。
 
