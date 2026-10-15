@@ -47,8 +47,10 @@ public class VoxelGacha : MonoBehaviour
 
     // ---------- 奖品 ----------
 
-    /// <summary>一件奖品：名字、星级（3 / 4 / 5）、是角色还是武器、备注（元素或武器类型）</summary>
-    class Wish
+    /// <summary>一件奖品：名字、星级（3 / 4 / 5）、是角色还是武器、备注（元素或武器类型）。
+    /// 公开给背包用（见 <see cref="Find"/>）：抽到的东西是按名字记在物品栏里的，
+    /// 背包拿着名字回来问它"这是角色还是武器、几星"</summary>
+    public class Wish
     {
         public readonly string Name, Note;
         public readonly int Rarity;
@@ -211,8 +213,9 @@ public class VoxelGacha : MonoBehaviour
         return WeaponIcons.TryGetValue(w.Note, out string weapon) ? weapon : null;
     }
 
-    /// <summary>取图标；没有就返回 null，交给调用处退回纯文字版</summary>
-    Texture2D IconOf(Wish w)
+    /// <summary>取图标；没有就返回 null，交给调用处退回纯文字版。
+    /// 公开给背包用（格子里贴角色 / 武器图标），只依赖静态缓存，不碰实例状态</summary>
+    public static Texture2D IconOf(Wish w)
     {
         string key = IconKeyOf(w);
         if (string.IsNullOrEmpty(key)) return null;
@@ -335,7 +338,8 @@ public class VoxelGacha : MonoBehaviour
             if (IsOpen && _results.Count > 0) { DismissResults(); return; }
 
             if (IsOpen) Close();
-            else if (!VoxelChat.IsOpen && !VoxelMenu.IsOpen) Open();      // 对话框 / 菜单开着的时候不抢
+            else if (!VoxelChat.IsOpen && !VoxelMenu.IsOpen && !VoxelInventory.IsOpen &&
+                     !VoxelCharacterScreen.IsOpen) Open();      // 对话框 / 菜单 / 背包 / 角色界面开着的时候不抢
             return;
         }
 
@@ -754,6 +758,35 @@ public class VoxelGacha : MonoBehaviour
     }
 
     static Wish Pick(Wish[] pool) => pool[Random.Range(0, pool.Length)];
+
+    /// <summary>按名字在三个卡池里找一件奖品（背包用：抽到的东西是按名字记的，得回头看它是角色还是武器、
+    /// 几星、什么类型）。名字没在任何奖池里出现过就返回 null</summary>
+    public static Wish Find(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return null;
+
+        for (int i = 0; i < Banners.Length; i++)
+        {
+            Banner b = Banners[i];
+
+            Wish found = FindIn(b.Up5, name) ?? FindIn(b.Standard5, name) ?? FindIn(b.Up4, name) ??
+                         FindIn(b.Standard4, name) ?? FindIn(b.Standard3, name);
+
+            if (found != null) return found;
+        }
+
+        return null;
+    }
+
+    static Wish FindIn(Wish[] pool, string name)
+    {
+        if (pool == null) return null;
+
+        for (int i = 0; i < pool.Length; i++)
+            if (pool[i].Name == name) return pool[i];
+
+        return null;
+    }
 
     /// <summary>把抽到的东西收进背包，并往抽卡历史里插一条（最新的在最前）</summary>
     void Grant(Wish w)

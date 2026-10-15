@@ -68,7 +68,8 @@ public class VoxelHud : MonoBehaviour
         if (_interaction == null) return;
         EnsureStyles();
 
-        if (Cursor.lockState == CursorLockMode.Locked && !TitleScreen.IsOpen && !VoxelMenu.IsOpen)
+        if (Cursor.lockState == CursorLockMode.Locked && !TitleScreen.IsOpen && !VoxelMenu.IsOpen &&
+            !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen)
         {
             DrawRegionBanner();          // 正上方那条"进入新地区"的横幅，压在准星之上
             DrawAchievement();           // 首次进 Andy的港门 的成就卡片
@@ -80,7 +81,7 @@ public class VoxelHud : MonoBehaviour
             DrawLootToast();
         }
         else if (!VoxelChat.IsOpen && !VoxelGacha.IsOpen && !WorldMap.IsOpen && !TitleScreen.IsOpen &&
-                 !VoxelMenu.IsOpen)      // 对话框 / 祈愿 / 大地图 / 菜单 / 开幕动画打开时把屏幕让出去
+                 !VoxelMenu.IsOpen && !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen)   // 这些面板打开时把屏幕让出去
         {
             DrawStartPanel();
         }
@@ -335,8 +336,8 @@ public class VoxelHud : MonoBehaviour
         float y  = Screen.height - 92f;
 
         LabelShadow(new Rect(cx - 125f, y - 16f, 120f, 14f),
-                    "生命 " + _stats.Health.ToString("F0"), _number);
-        SegmentedBar(cx - 125f, y, _stats.Health, new Color(0.83f, 0.18f, 0.18f));
+                    "生命 " + _stats.Health.ToString("F0") + "/" + _stats.MaxHealth.ToString("F0"), _number);
+        SegmentedBar(cx - 125f, y, _stats.Health, new Color(0.83f, 0.18f, 0.18f), 11f, 12f, _stats.MaxHealth);
 
         // 饿到跑不动时颜色变暗，一眼能看出状态不对
         bool starving = _stats.Hunger < VoxelStats.NoSprintBelow;
@@ -346,15 +347,18 @@ public class VoxelHud : MonoBehaviour
                      starving ? new Color(0.72f, 0.30f, 0.06f) : new Color(0.93f, 0.62f, 0.12f));
     }
 
-    /// <summary>10 格分段条（值 0~100），最后一格按数值比例部分填充。
-    /// 玩家 HUD 和 NPC 名牌下方的血条共用；cell / h 是格宽和条高，NPC 头顶用更小的尺寸</summary>
-    public static void SegmentedBar(float x, float y, float value, Color fill, float cell = 11f, float h = 12f)
+    /// <summary>10 格分段条，最后一格按数值比例部分填充。
+    /// 玩家 HUD 和 NPC 名牌下方的血条共用；cell / h 是格宽和条高，max 是满值
+    /// （玩家生命上限会随角色养成变化，所以要传进来；NPC 不传就是原来的 100）</summary>
+    public static void SegmentedBar(float x, float y, float value, Color fill, float cell = 11f, float h = 12f,
+                                    float max = VoxelStats.Max)
     {
         const float gap = 1f;
+        float step = Mathf.Max(0.001f, max / 10f);
 
         for (int i = 0; i < 10; i++)
         {
-            float frac = Mathf.Clamp01((value - i * 10f) / 10f);
+            float frac = Mathf.Clamp01((value - i * step) / step);
             var r = new Rect(x + i * (cell + gap), y, cell, h);
 
             // 底色跟着 fill 的透明度走：NPC 名牌渐隐时不会剩下一排黑块
@@ -366,19 +370,19 @@ public class VoxelHud : MonoBehaviour
 
     void DrawStatus()
     {
-        var box = new Rect(12f, Screen.height - 74f, 520f, 62f);
+        var box = new Rect(12f, Screen.height - 74f, 620f, 62f);
         FillRect(box, new Color(0f, 0f, 0f, 0.42f));
 
         string line1, line2;
         if (_player != null && _player.isFlying)
         {
             line1 = "WASD 移动    Shift 加速    空格 上升    Ctrl 下降";
-            line2 = "T 对话框    P 祈愿    M 世界地图    E 开启宝箱    再输入 /fly 关闭飞行";
+            line2 = "T 对话框    P 祈愿    B 背包    C 角色    M 世界地图    E 开启宝箱    再输入 /fly 关闭飞行";
         }
         else
         {
             line1 = "WASD 移动    Shift 疾跑    空格 跳跃    左键 攻击    Q 丢掉手上的道具";
-            line2 = "E 开启宝箱    T 对话框    P 祈愿    M 世界地图    滚轮 换道具    Esc 释放鼠标";
+            line2 = "E 开箱    T 对话    P 祈愿    B 背包    C 角色    M 地图    滚轮 换道具    Esc 鼠标";
         }
 
         GUI.Label(new Rect(box.x + 12f, box.y + 8f,  box.width, 24f), line1, _body);
@@ -433,7 +437,7 @@ public class VoxelHud : MonoBehaviour
 
     void DrawStartPanel()
     {
-        float w = 460f, h = 190f;
+        float w = 560f, h = 190f;
         var box = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
 
         FillRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.55f));
@@ -443,7 +447,8 @@ public class VoxelHud : MonoBehaviour
         GUI.Label(new Rect(box.x, box.y + 70f,  w, 24f), "点击画面开始", _body);
         GUI.Label(new Rect(box.x, box.y + 104f, w, 24f), "WASD 移动 · Shift 疾跑 · 空格 跳跃", _body);
         GUI.Label(new Rect(box.x, box.y + 128f, w, 24f), "左键挖 · 右键放 · 数字键/滚轮换方块 · Esc 菜单（O 也行）", _body);
-        GUI.Label(new Rect(box.x, box.y + 152f, w, 24f), "T 对话框 · P 祈愿 · M 世界地图 · E 开启宝箱 · 输入 /fly 切换飞行", _body);
+        GUI.Label(new Rect(box.x, box.y + 152f, w, 24f),
+                  "T 对话框 · P 祈愿 · B 背包 · C 角色 · M 地图 · E 开宝箱 · 输入 /fly 切换飞行", _body);
     }
 
     public static void FillRect(Rect r, Color c)

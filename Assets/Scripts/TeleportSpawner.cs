@@ -581,7 +581,12 @@ public class TeleportSpawner : MonoBehaviour
                 if (OpenWorld.Slope(x, z) > 0.24f) continue;                    // 陡坡不要
                 if (Mathf.Abs(h - pos.y) > 1.2f) continue;                      // 高度对不上（坡下 / 台子外）不要
 
-                return new Vector3(x, Mathf.Max(h, pos.y) + 0.05f, z);
+                // ★ 还要看那个位置站不站得下人：城镇 / 神像附近房子密，光比地形高度的话
+                //   落点会正好落在房子、石阶或神像基座的体积里 —— 一传送就卡在建筑内部出不来
+                var land = new Vector3(x, Mathf.Max(h, pos.y) + 0.05f, z);
+                if (!VoxelSpace.Fits(land)) continue;
+
+                return land;
             }
         }
 

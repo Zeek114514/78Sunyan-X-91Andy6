@@ -44,7 +44,8 @@ public class VoxelMenu : MonoBehaviour
             // 只在"游戏内"（鼠标是锁着的）才开菜单：别的面板开着时鼠标是放开的，
             // 它们在各自的 Update 里用 Esc 关闭 —— 这里不抢，免得同一帧关一个又开一个
             bool free = Cursor.lockState == CursorLockMode.Locked &&
-                        !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !WorldMap.IsOpen && !TitleScreen.IsOpen;
+                        !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !WorldMap.IsOpen &&
+                        !TitleScreen.IsOpen && !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen;
 
             // O 开菜单；Esc 也开（停在上次看的那一页）
             if (free && (Input.GetKeyDown(KeyCode.O) || Input.GetKeyDown(KeyCode.Escape))) Open();
@@ -230,14 +231,37 @@ public class VoxelMenu : MonoBehaviour
         float y = content.y + 48f;
         float x = content.x;
 
-        VoxelHud.LabelShadow(new Rect(x, y, content.width, 30f), "Sunyan", _gold);
-        y += 40f;
+        // 出战角色（养成的明细在 C 键角色界面里）
+        var active = VoxelCharacterSheet.Instance != null ? VoxelCharacterSheet.Instance.Active : null;
+
+        VoxelHud.LabelShadow(new Rect(x, y, content.width, 30f),
+                             active != null ? $"{active.Name}　Lv.{active.Level}" : "Sunyan", _gold);
+        y += 32f;
+
+        if (active != null)
+        {
+            VoxelHud.LabelShadow(new Rect(x + 14f, y, content.width - 20f, 22f),
+                                 $"攻击力 {active.Attack:0}　防御力 {active.Defense:0}　" +
+                                 $"暴击 {active.CritRate * 100f:0.#}% / {active.CritDamage * 100f:0.#}%　" +
+                                 $"每下普攻 {active.NormalAttackDamage:0}", _small);
+            y += 22f;
+
+            VoxelHud.LabelShadow(new Rect(x + 14f, y, content.width - 20f, 22f),
+                                 $"武器 {(active.Weapon != null ? active.Weapon.Name : "空手")}　" +
+                                 $"圣遗物 {active.EquippedCount}/5 件　按 C 看养成 / 升级 / 换装备", _small);
+            y += 30f;
+        }
+        else
+        {
+            y += 8f;
+        }
 
         if (_stats != null)
         {
             VoxelHud.LabelShadow(new Rect(x, y, 60f, 20f), "生命", _small);
-            VoxelHud.SegmentedBar(x + 56f, y, _stats.Health, new Color(0.83f, 0.18f, 0.18f), 14f, 16f);
-            VoxelHud.LabelShadow(new Rect(x + 220f, y, 120f, 20f), $"{_stats.Health:0} / 100", _small);
+            VoxelHud.SegmentedBar(x + 56f, y, _stats.Health, new Color(0.83f, 0.18f, 0.18f), 14f, 16f, _stats.MaxHealth);
+            VoxelHud.LabelShadow(new Rect(x + 220f, y, 160f, 20f),
+                                 $"{_stats.Health:0} / {_stats.MaxHealth:0}", _small);
             y += 30f;
 
             VoxelHud.LabelShadow(new Rect(x, y, 60f, 20f), "饱食", _small);
@@ -278,7 +302,7 @@ public class VoxelMenu : MonoBehaviour
             y += 32f;
 
             VoxelHud.LabelShadow(new Rect(x, y, content.width, 22f),
-                                 "详细材料在右上角钱袋；开宝箱的收获会滑出来提示", _small);
+                                 "按 B 打开背包看道具（分类储物）；角色养成与武器在 C 键界面", _small);
         }
     }
 
@@ -339,6 +363,8 @@ public class VoxelMenu : MonoBehaviour
             "E             开宝箱 / 交互     Q      丢掉手上的道具",
             "T             对话框（聊天 / 指令：/fly /eat /status）",
             "O             菜单（成就 / 角色 / 地区 / 操作），再按一次关闭",
+            "B             背包（分类储物 / 看道具详情），再按一次关闭",
+            "C             角色（养成：等级 / 天赋 / 技能 / 圣遗物 / 武器），再按一次关闭",
             "P             祈愿（抽卡）      M      世界地图 + 小地图",
             "Esc           也是菜单          点画面  锁定鼠标继续游戏",
         };

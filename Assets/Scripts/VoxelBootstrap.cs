@@ -30,7 +30,9 @@ public static class VoxelBootstrap
         controller.height     = 1.8f;
         controller.radius     = 0.3f;
         controller.center     = new Vector3(0f, 0.9f, 0f);
-        controller.slopeLimit = 90f;     // 允许站在方块边缘
+        controller.slopeLimit = 50f;     // 只走得上 50° 以内的坡：世界里的取景台 / 村落大台子是 42°，刚好上得去；
+                                         // 以前写 90°（体素那会儿为了站方块边缘），结果墙面、神像台基、屋顶全都能爬上去 ——
+                                         // 而建筑和神像都是没有底的薄壳，人一进去就出不来（见 LowPoly 的绕序注释）
         controller.stepOffset = 0.4f;
         controller.skinWidth  = 0.02f;
 
@@ -69,6 +71,18 @@ public static class VoxelBootstrap
         // ---------- 5.5 Esc 菜单（成就 / 角色 / 地区 / 操作）----------
         // 和 HUD / 祈愿 / 大地图并列：Esc 打开、Esc 关，打开时放开鼠标（玩家控制自然停）
         playerGo.AddComponent<VoxelMenu>().Init(interaction, player, stats);
+
+        // ---------- 5.6 背包（B 键：分类储物 / 道具详情）----------
+        // 和菜单同一套互斥规则：打开时放开鼠标，关掉直接回游戏
+        playerGo.AddComponent<VoxelInventory>().Init(interaction);
+
+        // ---------- 5.7 角色养成（C 键：等级 / 天赋 / 技能 / 圣遗物 / 武器）----------
+        // 出战角色的数值真的会算进战斗与生命上限（见 VoxelCharacterSheet 里那几个静态快捷取值）。
+        // 放在 interaction 之后：判断"这个角色有没有""某把武器抽到几把"都要问物品栏
+        var sheet = playerGo.AddComponent<VoxelCharacterSheet>();
+        sheet.Init(interaction);
+
+        playerGo.AddComponent<VoxelCharacterScreen>().Init(sheet);
 
         // ---------- 6. 世界地图 / 小地图 ----------
         // ★ 地图创建放到 8.5（所有生成器之后）再调用 —— 原因见那里的注释：
@@ -146,7 +160,7 @@ public static class VoxelBootstrap
         titleGo.AddComponent<TitleScreen>().Init(cam, player, combat, interaction);
 
         Debug.Log("[VoxelDemo] 开放世界生成完毕。WASD 移动 / 空格 跳跃 / 左键 攻击 / Q 丢道具 / E 开宝箱，" +
-                  "T 对话框，P 祈愿，M 世界地图，/fly 飞行，/eat 恢复饱食度。");
+                  "T 对话框，P 祈愿，B 背包，C 角色养成，M 世界地图，/fly 飞行，/eat 恢复饱食度。");
     }
 
     /// <summary>按数据在出生点附近生成一个 NPC；落点在水边就往旁边挪，找块干地站。

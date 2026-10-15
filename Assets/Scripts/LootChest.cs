@@ -237,10 +237,10 @@ public class LootChest : MonoBehaviour
         }
     }
 
-    /// <summary>对话框 / 祈愿 / 大地图 / 开幕动画开着、或者鼠标没锁的时候，不响应 E 键和提示</summary>
+    /// <summary>对话框 / 祈愿 / 大地图 / 背包 / 角色界面 / 开幕动画开着、或者鼠标没锁的时候，不响应 E 键和提示</summary>
     static bool CanUseInput() =>
         Cursor.lockState == CursorLockMode.Locked && !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !VoxelMenu.IsOpen &&
-        !WorldMap.IsOpen && !TitleScreen.IsOpen;
+        !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen && !WorldMap.IsOpen && !TitleScreen.IsOpen;
 
     /// <summary>玩家是不是站在跟前盯着它</summary>
     bool Focused(out float distance)

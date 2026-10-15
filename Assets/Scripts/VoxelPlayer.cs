@@ -2,6 +2,10 @@
 
 /// <summary>
 /// 第一人称移动。碰撞直接交给 CharacterController，比自己写 AABB 更稳。
+///
+/// 另外带一层"被卡住自救"：项目的建筑 / 神像都是低模薄壳（没有底的），
+/// 万一被关在屋顶、屋子或神像体积里，这里会隔一会儿探一次四周，
+/// 确认怎么走都出不去就把人挪到最近站得下人的地方（见 <see cref="VoxelSpace"/>）。
 /// </summary>
 [RequireComponent(typeof(CharacterController))]
 public class VoxelPlayer : MonoBehaviour
@@ -103,6 +107,7 @@ public class VoxelPlayer : MonoBehaviour
         {
             Look();
             Move();
+            EscapeIfTrapped();
         }
 
         // 俯仰始终生效，这样松开鼠标时视角不会跳
@@ -171,4 +176,56 @@ public class VoxelPlayer : MonoBehaviour
         motion.y = _verticalVelocity;
         _controller.Move(motion * Time.deltaTime);
     }
+
+    // ---------- 被卡住自救 ----------
+
+    const float TrapCheckInterval = 0.5f;    // 隔多久看一眼"四周还走不走得通"
+    const float TrapEscapeAfter   = 1.5f;    // 一直走不通这么久，就认为是被关在壳子里了
+
+    float _trapCheck;
+    float _trapTime;
+
+    /// <summary>
+    /// 被关在屋顶 / 屋子 / 神像这种薄壳里时，把自己挪到最近站得下人的地方。
+    /// 判定用 <see cref="VoxelSpace.Enclosed"/>（近处 + 远处两圈方向全堵住才算），
+    /// 所以在开阔地形上不会误触发；飞行和坠落的途中也不管（那时候不叫"卡住"）。
+    /// 实在找不到空位就贴回脚下的地形表面 —— 世界是连续地形，那儿一定站得住。
+    /// </summary>
+    void EscapeIfTrapped()
+    {
+        if (isFlying || !_controller.isGrounded)
+        {
+            _trapTime = 0f;
+            return;
+        }
+
+        _trapCheck -= Time.deltaTime;
+        if (_trapCheck > 0f) return;
+
+        _trapCheck = TrapCheckInterval;
+
+        if (!VoxelSpace.Enclosed(transform.position, transform))
+        {
+            _trapTime = 0f;
+            return;
+        }
+
+        _trapTime += TrapCheckInterval;
+        if (_trapTime < TrapEscapeAfter) return;
+
+        _trapTime = 0f;
+
+        Vector3 target;
+        if (!VoxelSpace.TryFindSpot(transform.position, transform, out target))
+            target = new Vector3(transform.position.x, GroundY(transform.position.x, transform.position.z) + 0.2f,
+                                 transform.position.z);
+        else
+            target.y = Mathf.Max(target.y, GroundY(target.x, target.z) + 0.05f);
+
+        Teleport(target);
+        VoxelChat.Announce("你被卡在建筑里了，已经把你挪到外面");
+    }
+
+    /// <summary>脚下那块地形的高度（找不到世界时就用当前位置，权当兜底）</summary>
+    float GroundY(float x, float z) => _world != null ? _world.SurfaceY(x, z) : transform.position.y;
 }

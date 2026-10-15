@@ -44,7 +44,8 @@ public class VoxelChat : MonoBehaviour
 
     void Update()
     {
-        if (VoxelGacha.IsOpen || VoxelMenu.IsOpen) return;      // 祈愿 / 菜单开着时不抢按键
+        // 祈愿 / 菜单 / 背包 / 角色界面开着时不抢按键
+        if (VoxelGacha.IsOpen || VoxelMenu.IsOpen || VoxelInventory.IsOpen || VoxelCharacterScreen.IsOpen) return;
 
         if (IsOpen)
         {
@@ -63,7 +64,9 @@ public class VoxelChat : MonoBehaviour
 
     void OnGUI()
     {
-        if (VoxelGacha.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen) return;   // 祈愿 / 菜单 / 开幕动画占满屏幕时，聊天日志先收起来
+        // 祈愿 / 菜单 / 背包 / 角色界面 / 开幕动画占满屏幕时，聊天日志先收起来
+        if (VoxelGacha.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen ||
+            VoxelInventory.IsOpen || VoxelCharacterScreen.IsOpen) return;
 
         EnsureStyles();
 
@@ -157,7 +160,16 @@ public class VoxelChat : MonoBehaviour
 
             case "status":
                 if (_stats == null) return;
-                Log("生命 " + _stats.Health.ToString("F0") + "/100    饱食度 " + _stats.Hunger.ToString("F0") + "/100");
+                Log("生命 " + _stats.Health.ToString("F0") + "/" + _stats.MaxHealth.ToString("F0") +
+                    "    饱食度 " + _stats.Hunger.ToString("F0") + "/100");
+
+                if (VoxelCharacterSheet.Instance != null && VoxelCharacterSheet.Instance.Active != null)
+                {
+                    var state = VoxelCharacterSheet.Instance.Active;
+                    Log("出战 " + state.Name + "  Lv." + state.Level +
+                        "    攻击力 " + state.Attack.ToString("F0") +
+                        "    每下普攻 " + state.NormalAttackDamage.ToString("F0"));
+                }
                 if (_player != null)
                 {
                     Vector3 p = _player.transform.position;

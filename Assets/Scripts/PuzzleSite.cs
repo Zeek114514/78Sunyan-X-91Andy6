@@ -167,7 +167,7 @@ public class PuzzleSite : MonoBehaviour
 
     static bool CanUseInput() =>
         Cursor.lockState == CursorLockMode.Locked && !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !VoxelMenu.IsOpen &&
-        !WorldMap.IsOpen && !TitleScreen.IsOpen;
+        !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen && !WorldMap.IsOpen && !TitleScreen.IsOpen;
 
     /// <summary>玩家是不是站在某根方碑跟前盯着它</summary>
     bool FocusedNode(out Node found)
