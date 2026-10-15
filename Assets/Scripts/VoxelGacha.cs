@@ -166,6 +166,75 @@ public class VoxelGacha : MonoBehaviour
         },
     };
 
+    // ---------- 图标 ----------
+    // 图标放在 Assets/Resources/GachaIcons/ 下，按下表的键命名（不带扩展名）。
+    // 角色按名字查表、武器按类型推 —— 加新奖品只要名字和类型没变就自动对上图，奖池数据一行都不用改。
+    // 缺图不会出问题：IconOf 返回 null，界面自动退回原来的纯文字排版，可以一张一张慢慢补。
+    // 三星会先找 "<键>_basic" 的朴素版，没有就退回同类型的通用图。
+
+    const string IconFolder = "GachaIcons/";
+
+    /// <summary>角色名 → 图标键</summary>
+    static readonly Dictionary<string, string> CharacterIcons = new Dictionary<string, string>
+    {
+        { "孙琰",       "char_sunyan" },
+        { "Andy",       "char_andy" },
+        { "湖心城主",   "char_lake_city_lord" },
+        { "将军府雷使", "char_tenshu_general" },
+        { "港门商会长", "char_harbor_merchant" },
+        { "雪顶猎手",   "char_snow_hunter" },
+        { "鸣神巫女",   "char_narukami_miko" },
+        { "湖畔卫兵",   "char_lakeside_guard" },
+        { "喀斯特矿工", "char_karst_miner" },
+        { "神像祭司",   "char_statue_priest" },
+    };
+
+    /// <summary>武器类型（Wish.Note）→ 图标键。武器按类型共用一张图，星级靠卡片描边颜色区分。</summary>
+    static readonly Dictionary<string, string> WeaponIcons = new Dictionary<string, string>
+    {
+        { "单手剑",   "wpn_sword" },
+        { "双手剑",   "wpn_claymore" },
+        { "弓",       "wpn_bow" },
+        { "法器",     "wpn_catalyst" },
+        { "长柄武器", "wpn_polearm" },
+    };
+
+    // 查到的图缓存在这儿（"确实没有"也缓存），否则十连时每帧几十次 Resources.Load
+    static readonly Dictionary<string, Texture2D> IconCache = new Dictionary<string, Texture2D>();
+
+    /// <summary>这件奖品用哪张图</summary>
+    static string IconKeyOf(Wish w)
+    {
+        if (w.IsCharacter)
+            return CharacterIcons.TryGetValue(w.Name, out string character) ? character : null;
+
+        return WeaponIcons.TryGetValue(w.Note, out string weapon) ? weapon : null;
+    }
+
+    /// <summary>取图标；没有就返回 null，交给调用处退回纯文字版</summary>
+    Texture2D IconOf(Wish w)
+    {
+        string key = IconKeyOf(w);
+        if (string.IsNullOrEmpty(key)) return null;
+
+        if (w.Rarity <= 3)
+        {
+            Texture2D basic = LoadIcon(key + "_basic");
+            if (basic != null) return basic;
+        }
+
+        return LoadIcon(key);
+    }
+
+    static Texture2D LoadIcon(string key)
+    {
+        if (IconCache.TryGetValue(key, out Texture2D cached)) return cached;
+
+        var texture = Resources.Load<Texture2D>(IconFolder + key);
+        IconCache[key] = texture;     // 没有也缓存，免得每帧重复查
+        return texture;
+    }
+
     // ---------- 运行时状态 ----------
 
     readonly int[]  _pity5      = new int[BannerNames.Length];       // 距离上次五星已经抽了多少次
@@ -492,16 +561,16 @@ public class VoxelGacha : MonoBehaviour
     /// <summary>中间那个大展位：本池的五星。单 / 双 UP 左右并排，常驻池那种一堆五星的排成网格</summary>
     void DrawFeatured()
     {
-        Rect card = new Rect(472f, 178f, 506f, 202f);
+        Rect card = new Rect(472f, 166f, 506f, 226f);
         FrameD(card, new Color(0.10f, 0.12f, 0.22f, 0.92f), GoldDeep, Px(1f));
         CornersD(card, Gold, 14f, 2f);
 
         Wish[] up = Banners[_banner].Up5;
 
-        // 常驻池：七件五星挤不下，排成两行小格
+        // 常驻池：七件五星挤不下，排成两行小格（格子太小，只画小图 + 名字）
         if (up.Length > 2)
         {
-            LabelD(new Rect(card.x, card.y + 12f, card.width, 26f),
+            LabelD(new Rect(card.x, card.y + 10f, card.width, 26f),
                    "常驻五星 · 共 " + up.Length + " 件", _sub, Gold);
 
             const int cols = 4;
@@ -509,12 +578,24 @@ public class VoxelGacha : MonoBehaviour
 
             for (int i = 0; i < up.Length; i++)
             {
+                Wish wish = up[i];
                 Rect cell = new Rect(card.x + 16f + (i % cols) * cellW,
-                                     card.y + 52f + (i / cols) * 66f, cellW, 60f);
+                                     card.y + 42f + (i / cols) * 72f, cellW, 68f);
 
-                LabelD(new Rect(cell.x, cell.y, cell.width, 22f), Stars(up[i].Rarity), _sub, Star5);
-                LabelD(new Rect(cell.x, cell.y + 22f, cell.width, 26f), up[i].Name, _sub, Text);
-                LabelD(new Rect(cell.x, cell.y + 46f, cell.width, 20f), up[i].Note, _small, TextDim);
+                Texture2D icon = IconOf(wish);
+                if (icon != null)
+                {
+                    const float side = 38f;
+                    GUI.DrawTexture(S(new Rect(cell.center.x - side * 0.5f, cell.y, side, side)),
+                                    icon, ScaleMode.ScaleToFit);
+                    LabelD(new Rect(cell.x, cell.y + 40f, cell.width, 24f), wish.Name, _small, Text);
+                }
+                else
+                {
+                    LabelD(new Rect(cell.x, cell.y, cell.width, 22f), Stars(wish.Rarity), _sub, Star5);
+                    LabelD(new Rect(cell.x, cell.y + 22f, cell.width, 26f), wish.Name, _sub, Text);
+                    LabelD(new Rect(cell.x, cell.y + 46f, cell.width, 20f), wish.Note, _small, TextDim);
+                }
             }
             return;
         }
@@ -522,21 +603,32 @@ public class VoxelGacha : MonoBehaviour
         float half = card.width * (up.Length == 1 ? 1f : 0.5f);
 
         for (int i = 0; i < up.Length; i++)
+            DrawFeaturedSlot(new Rect(card.x + i * half, card.y, half, card.height), up[i], i == 1);
+    }
+
+    /// <summary>展位里的一格：有图标就"上图下文"，没图标就整格居中放文字</summary>
+    void DrawFeaturedSlot(Rect slot, Wish w, bool divider)
+    {
+        if (divider)   // 双 UP 中间的分隔线
+            VoxelHud.FillRect(S(new Rect(slot.x, slot.y + 26f, Px(1f), slot.height - 52f)),
+                              new Color(GoldDeep.r, GoldDeep.g, GoldDeep.b, 0.6f));
+
+        Texture2D icon = IconOf(w);
+        float top = slot.y + 10f;
+
+        if (icon != null)
         {
-            Wish w = up[i];
-            Rect side = new Rect(card.x + i * half, card.y, half, card.height);
-
-            if (i == 1)   // 双 UP 中间的分隔线
-                VoxelHud.FillRect(S(new Rect(side.x, side.y + 28f, Px(1f), side.height - 56f)),
-                                  new Color(GoldDeep.r, GoldDeep.g, GoldDeep.b, 0.6f));
-
-            LabelD(new Rect(side.x, side.y + 22f, side.width, 28f), Stars(w.Rarity), _button, Star5);
-            LabelD(new Rect(side.x, side.y + 60f, side.width, 38f), w.Name, _button, Text);
-            LabelD(new Rect(side.x, side.y + 102f, side.width, 24f),
-                   (w.IsCharacter ? "角色 · " : "武器 · ") + w.Note, _sub, TextDim);
+            float side = Mathf.Min(slot.width * 0.34f, slot.height * 0.42f);
+            GUI.DrawTexture(S(new Rect(slot.center.x - side * 0.5f, top, side, side)),
+                            icon, ScaleMode.ScaleToFit);
+            top += side + 4f;
         }
 
-        LabelD(new Rect(card.x, card.y + 152f, card.width, 24f), "UP！", _sub, Gold);
+        LabelD(new Rect(slot.x, top, slot.width, 26f), Stars(w.Rarity), _sub, Star5);
+        LabelD(new Rect(slot.x, top + 28f, slot.width, 30f), w.Name, _button, Text);
+        LabelD(new Rect(slot.x, top + 60f, slot.width, 22f),
+               (w.IsCharacter ? "角色 · " : "武器 · ") + w.Note, _sub, TextDim);
+        LabelD(new Rect(slot.x, top + 84f, slot.width, 22f), "UP！", _sub, Gold);
     }
 
     /// <summary>星级对应的那串星星</summary>
@@ -572,8 +664,23 @@ public class VoxelGacha : MonoBehaviour
             Rect card = new Rect(x + i * (w + gap), 404f, w, h);
 
             FrameD(card, new Color(0.09f, 0.10f, 0.19f, 0.92f), GoldDeep, Px(1f));
-            LabelD(new Rect(card.x, card.y + 5f, card.width, 20f), Stars(wish.Rarity), _sub, Star4);
-            LabelD(new Rect(card.x, card.y + 25f, card.width, 26f), wish.Name, _sub, Text);
+
+            Texture2D icon = IconOf(wish);
+            if (icon == null)
+            {
+                LabelD(new Rect(card.x, card.y + 5f, card.width, 20f), Stars(wish.Rarity), _sub, Star4);
+                LabelD(new Rect(card.x, card.y + 25f, card.width, 26f), wish.Name, _sub, Text);
+                continue;
+            }
+
+            // 卡片是横条，图标放左边、文字放右边
+            float side = card.height - 10f;
+            GUI.DrawTexture(S(new Rect(card.x + 5f, card.y + 5f, side, side)), icon, ScaleMode.ScaleToFit);
+
+            float textX = card.x + 5f + side + 4f;
+            float textW = card.xMax - textX - 5f;
+            LabelD(new Rect(textX, card.y + 11f, textW, 20f), Stars(wish.Rarity), _small, Star4);
+            LabelD(new Rect(textX, card.y + 29f, textW, 22f), wish.Name, _small, Text);
         }
 
         if (up.Length > count)
@@ -791,14 +898,14 @@ public class VoxelGacha : MonoBehaviour
         }
         else
         {
-            // 十连：5 列 × 2 行
-            const float cw = 206f, ch = 198f, gapX = 14f, gapY = 16f;
+            // 十连：5 列 × 2 行（卡片比单抽的矮，字号也小一号）
+            const float cw = 208f, ch = 212f, gapX = 14f, gapY = 14f;
             float totalW = cw * 5f + gapX * 4f;
             float x0 = 640f - totalW * 0.5f;
 
             for (int i = 0; i < n && i < 10; i++)
                 DrawResultCard(new Rect(x0 + (i % 5) * (cw + gapX),
-                                        156f + (i / 5) * (ch + gapY), cw, ch),
+                                        150f + (i / 5) * (ch + gapY), cw, ch),
                                _results[i], i * 0.09f, elapsed);
         }
 
@@ -833,11 +940,45 @@ public class VoxelGacha : MonoBehaviour
         FrameD(box, new Color(0.08f, 0.10f, 0.19f, 0.95f), tint, Px(w.Rarity >= 5 ? 3f : 2f));
         CornersD(box, tint, 16f, 3f);
 
-        LabelD(new Rect(box.x, box.y + box.height * 0.12f, box.width, 30f), Stars(w.Rarity), _button, tint);
-        LabelD(new Rect(box.x, box.y + box.height * 0.32f, box.width, 40f), w.Name, _button, Text);
-        LabelD(new Rect(box.x, box.y + box.height * 0.54f, box.width, 24f),
+        Texture2D icon = IconOf(w);
+
+        // 没图就退回原来那套纯文字竖排
+        if (icon == null)
+        {
+            LabelD(new Rect(box.x, box.y + box.height * 0.12f, box.width, 30f), Stars(w.Rarity), _button, tint);
+            LabelD(new Rect(box.x, box.y + box.height * 0.32f, box.width, 40f), w.Name, _button, Text);
+            LabelD(new Rect(box.x, box.y + box.height * 0.54f, box.width, 24f),
+                   (w.IsCharacter ? "角色" : "武器") + " · " + w.Note, _sub, TextDim);
+            LabelD(new Rect(box.x, box.y + box.height * 0.68f, box.width, 24f), "已收进背包", _sub, TextDim);
+            return;
+        }
+
+        // 十连的卡小，文字精简成"星级 + 名字"两行
+        bool compact = box.height < 260f;
+
+        // 小卡给图标留更大比例，否则十连里的图小得看不清
+        float side = compact ? Mathf.Min(box.width * 0.72f, box.height * 0.52f)
+                             : Mathf.Min(box.width * 0.62f, box.height * 0.40f);
+        Rect slot = new Rect(box.center.x - side * 0.5f, box.y + box.height * 0.06f, side, side);
+        GUI.DrawTexture(S(slot), icon, ScaleMode.ScaleToFit);
+
+        float textTop = slot.yMax - box.y + box.height * 0.02f;   // 相对卡顶的偏移
+
+        LabelD(new Rect(box.x, box.y + textTop, box.width, box.height * 0.13f), Stars(w.Rarity), _button, tint);
+
+        if (compact)
+        {
+            LabelD(new Rect(box.x, box.y + textTop + box.height * 0.14f, box.width, box.height * 0.18f),
+                   w.Name, _sub, Text);
+            return;
+        }
+
+        LabelD(new Rect(box.x, box.y + textTop + box.height * 0.14f, box.width, box.height * 0.15f),
+               w.Name, _button, Text);
+        LabelD(new Rect(box.x, box.y + textTop + box.height * 0.29f, box.width, box.height * 0.10f),
                (w.IsCharacter ? "角色" : "武器") + " · " + w.Note, _sub, TextDim);
-        LabelD(new Rect(box.x, box.y + box.height * 0.68f, box.width, 24f), "已收进背包", _sub, TextDim);
+        LabelD(new Rect(box.x, box.y + textTop + box.height * 0.40f, box.width, box.height * 0.10f),
+               "已收进背包", _sub, TextDim);
     }
 
     // ---------- 奖池详情层 ----------
