@@ -44,7 +44,7 @@ public class VoxelChat : MonoBehaviour
 
     void Update()
     {
-        if (VoxelGacha.IsOpen) return;      // 祈愿页面开着时不抢按键
+        if (VoxelGacha.IsOpen || VoxelMenu.IsOpen) return;      // 祈愿 / 菜单开着时不抢按键
 
         if (IsOpen)
         {
@@ -63,7 +63,7 @@ public class VoxelChat : MonoBehaviour
 
     void OnGUI()
     {
-        if (VoxelGacha.IsOpen) return;      // 祈愿页面占满屏幕时，聊天日志先收起来
+        if (VoxelGacha.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen) return;   // 祈愿 / 菜单 / 开幕动画占满屏幕时，聊天日志先收起来
 
         EnsureStyles();
 

@@ -19,12 +19,19 @@ public class VoxelStats : MonoBehaviour
     public float Health { get; private set; } = Max;
     public float Hunger { get; private set; } = Max;
 
+    /// <summary>场上那一份（七天神像走近回满生命 / 体力时要用）</summary>
+    public static VoxelStats Instance { get; private set; }
+
     /// <summary>饱食度够不够奔跑（VoxelPlayer 每帧问它）</summary>
     public bool CanSprint => Hunger >= NoSprintBelow;
 
     VoxelPlayer _player;
 
-    public void Init(VoxelPlayer player) => _player = player;
+    public void Init(VoxelPlayer player)
+    {
+        _player = player;
+        Instance = this;
+    }
 
     void Update()
     {
@@ -44,6 +51,16 @@ public class VoxelStats : MonoBehaviour
     {
         SetHunger(Max);
         VoxelChat.Announce("吃饱了，饱食度已恢复到 100");
+    }
+
+    /// <summary>七天神像的祝福：生命与体力（饱食度）一起回满。
+    /// 返回"本来有缺"——缺了才播报，站在神像前不会每帧刷一句</summary>
+    public bool Bless()
+    {
+        bool needed = Health < Max - 0.01f || Hunger < Max - 0.01f;
+        Health = Max;
+        SetHunger(Max);
+        return needed;
     }
 
     public void ApplyFallDamage(float fallBlocks)

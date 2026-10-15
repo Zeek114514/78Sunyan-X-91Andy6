@@ -1,8 +1,10 @@
-﻿using UnityEngine;
+using System.Collections.Generic;
+using UnityEngine;
 
 /// <summary>
 /// 玩家交互（开放世界版）：只管鼠标锁定、手上的道具和 Q 键丢道具。
 /// 方块世界那套挖 / 放已经去掉——现在的地形是平滑网格，没有格子可挖。
+/// 另外这里也存着不占手上格子的收获：Andy的币（宝箱开出来的通用货币）和各种素材。
 /// </summary>
 public class VoxelInteraction : MonoBehaviour
 {
@@ -17,6 +19,15 @@ public class VoxelInteraction : MonoBehaviour
 
     /// <summary>物品栏里的纠缠之缘数量（抽一次卡花 1 个）</summary>
     public int FateCount = 10;
+
+    /// <summary>Andy的币：战利品宝箱开出来的通用货币，不占手上的格子，只在 HUD 右上角看得到</summary>
+    public int AndyCoinCount;
+
+    /// <summary>素材：名字 → 数量（宝箱开出来的材料，同样不占手上的格子）</summary>
+    readonly Dictionary<string, int> _materials = new Dictionary<string, int>();
+
+    /// <summary>素材的获得顺序（HUD 照着列，顺序稳定）</summary>
+    readonly List<string> _materialOrder = new List<string>();
 
     /// <summary>物品栏：原石 / 纠缠之缘（Air 表示空手）</summary>
     public static readonly byte[] Palette = { Primogem, IntertwinedFate };
@@ -41,8 +52,8 @@ public class VoxelInteraction : MonoBehaviour
     void Update()
     {
         if (_camera == null) return;
-        // 对话框 / 祈愿页面 / 大地图打开时不响应按键和鼠标（大地图自己管鼠标锁）
-        if (VoxelChat.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen) return;
+        // 对话框 / 祈愿页面 / 大地图 / 开幕动画打开时不响应按键和鼠标（大地图自己管鼠标锁）
+        if (VoxelChat.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen) return;
 
         HandleCursor();
 
@@ -106,4 +117,31 @@ public class VoxelInteraction : MonoBehaviour
 
     /// <summary>玩家捡回纠缠之缘时加数量（VoxelGem 调用）</summary>
     public void AddFate(int amount) => FateCount += amount;
+
+    // ---------- Andy的币 / 素材（战利品宝箱的奖励） ----------
+
+    /// <summary>开宝箱得到的 Andy的币</summary>
+    public void AddAndyCoin(int amount)
+    {
+        if (amount > 0) AndyCoinCount += amount;
+    }
+
+    /// <summary>开宝箱得到的素材</summary>
+    public void AddMaterial(string name, int amount)
+    {
+        if (string.IsNullOrEmpty(name) || amount <= 0) return;
+
+        if (!_materials.ContainsKey(name))
+        {
+            _materials[name] = 0;
+            _materialOrder.Add(name);          // 第一次拿到，记一笔顺序
+        }
+        _materials[name] += amount;
+    }
+
+    /// <summary>某种素材有多少</summary>
+    public int MaterialCount(string name) => _materials.TryGetValue(name, out int n) ? n : 0;
+
+    /// <summary>拿到过的素材名字，按获得顺序（HUD 照着列）</summary>
+    public IReadOnlyList<string> MaterialNames => _materialOrder;
 }

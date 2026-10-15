@@ -70,7 +70,7 @@ public class VoxelGacha : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.P))
         {
             if (IsOpen) Close();
-            else if (!VoxelChat.IsOpen) Open();      // 对话框开着的时候不抢
+            else if (!VoxelChat.IsOpen && !VoxelMenu.IsOpen) Open();      // 对话框 / 菜单开着的时候不抢
             return;
         }
 

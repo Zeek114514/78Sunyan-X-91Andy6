@@ -66,6 +66,31 @@ public class VoxelPlayer : MonoBehaviour
         _controller.enabled = true;
     }
 
+    /// <summary>传送到某处（大地图的传送锚点用）。和 Respawn 一个道理：CharacterController 开着
+    /// 直接改 position 会卡住，所以先关、挪完再开</summary>
+    public void Teleport(Vector3 position)
+    {
+        if (_controller == null)
+        {
+            transform.position = position;
+            return;
+        }
+
+        _controller.enabled = false;
+        transform.position = position;
+        _verticalVelocity = -2f;         // 别把上一段的坠落速度带过去
+        _fallDistance = 0f;
+        _controller.enabled = true;
+    }
+
+    /// <summary>直接把朝向定成某个 yaw（度）。大地图传送落地时用：落在锚点旁边就面朝该去的地方，
+    /// 不用自己先转半圈找方向</summary>
+    public void SetYaw(float yaw)
+    {
+        if (float.IsNaN(yaw)) return;
+        transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+    }
+
     void Update()
     {
         if (_camera == null) return;

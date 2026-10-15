@@ -541,20 +541,9 @@ public static class MondstadtTown
         AppendRing(verts, cols, tris, c + Vector3.up * 0.05f, 11.4f, 15.6f, 24, Quaternion.identity, Water);
         AppendRing(verts, cols, tris, c + Vector3.up * 0.06f, 15.5f, 17.0f, 24, Quaternion.identity, StoneDark);
 
-        // 基座 + 柱身 + 风神立像（身体 + 头 + 双翼 + 金球）
-        AppendCylinder(verts, cols, tris, c + Vector3.up * 0.9f, 1.0f, 3.0f, 2.4f, 12, StoneDark, true);
-        AppendCylinder(verts, cols, tris, c + Vector3.up * 1.9f, 7.0f, 1.5f, 1.1f, 10, Stone, true);
-
-        Vector3 top = c + Vector3.up * 8.9f;
-        AppendCylinder(verts, cols, tris, top, 2.6f, 0.85f, 1.0f, 8, Stone, true);
-        AppendSphere(verts, cols, tris, top + Vector3.up * 3.0f, 0.8f, Stone, 8);
-        for (int w = -1; w <= 1; w += 2)
-        {
-            var wingRot = Quaternion.Euler(0f, 0f, w * 32f);
-            AppendBox(verts, cols, tris, top + Vector3.up * 1.8f + wingRot * new Vector3(w * 2.1f, 0f, 0f),
-                      new Vector3(4.4f, 0.4f, 0.9f), wingRot, Stone, StoneDark);
-        }
-        AppendSphere(verts, cols, tris, top + Vector3.up * 4.7f, 0.55f, Gold, 8);
+        // ★ 广场正中的风神像不在这里建：它现在是「七天神像 · 风」（走近回满生命与体力、也是传送点），
+        //   几何由 TeleportAnchor.StatueMesh 在运行时生成，位置就是广场中心（TeleportSpawner 里那处锚点）。
+        //   这里只留水池和花坛 —— 原来那段"基座 + 柱身 + 风神立像"整段删掉，免得和神像叠在一起
 
         // 四个花坛 + 四面蓝白旗（摆在四个斜角，避开两条城门大道）。
         // 花坛只保留石砌花池 + 平整的花圃顶，之前那几颗悬空的粉色小球已经删掉
@@ -1287,179 +1276,36 @@ public static class MondstadtTown
         Debug.Log($"[MondstadtTown] 布局自检：摆放 {_placedCount} 件，因冲突跳过 {_rejectedCount} 次，障碍 {_obstacles.Count} 个；{tail}");
     }
 
-    /// <summary>0~1 确定性哈希（每个位置一样，重进游戏不会变）</summary>
-    static float Hash01(int a, int b, int salt)
-    {
-        unchecked
-        {
-            int n = a * 73856093 ^ b * 19349663 ^ salt * 83492791;
-            n = (n ^ (n >> 13)) * 1274126177;
-            uint u = (uint)(n ^ (n >> 16));
-            return u / 4294967295f;
-        }
-    }
+    /// <summary>0~1 确定性哈希（每个位置一样，重进游戏不会变）。实现在 LowPoly 里，全地图共用一套</summary>
+    static float Hash01(int a, int b, int salt) => LowPoly.Hash01(a, b, salt);
 
     // ================= 低模零件（都支持完整旋转） =================
 
+    /// <summary>一个盒子。几何在 LowPoly 里，这里只负责按顶面颜色挑子网格</summary>
     static void AppendBox(List<Vector3> verts, List<Color> cols, List<int> tris,
                           Vector3 center, Vector3 size, Quaternion rot, Color top, Color side)
-    {
-        int baseIndex = verts.Count;
-        Vector3 h = size * 0.5f;
-
-        for (int i = 0; i < 8; i++)
-        {
-            Vector3 corner = new Vector3((i & 1) == 0 ? -h.x : h.x,
-                                         (i & 2) == 0 ? -h.y : h.y,
-                                         (i & 4) == 0 ? -h.z : h.z);
-            verts.Add(center + rot * corner);
-            cols.Add(((i & 2) == 0 ? side : top).linear);
-        }
-
-        int[] faces =
-        {
-            0, 2, 3, 0, 3, 1,
-            4, 5, 7, 4, 7, 6,
-            0, 1, 5, 0, 5, 4,
-            2, 6, 7, 2, 7, 3,
-            1, 3, 7, 1, 7, 5,
-            0, 4, 6, 0, 6, 2,
-        };
-        var outTris = Route(top);          // 一整个盒子归一个子网格（按顶面颜色判断）
-        for (int i = 0; i < faces.Length; i++) outTris.Add(baseIndex + faces[i]);
-    }
+        => LowPoly.Box(verts, cols, Route(top), center, size, rot, top, side);
 
     /// <summary>双坡屋顶（屋脊沿局部 Z 轴）。
-    /// ★ 三角形绕序必须让法线朝外：之前这里是反的，结果屋顶正面被背面剔除掉——
-    ///   站在外面看不见屋顶，绕到另一边却看见屋顶的内表面，人一走进屋顶体积就"卡"在屋顶里。</summary>
+    /// ★ 绕序的坑记在 LowPoly.Gable 的注释里（屋顶法线曾经是反的），改之前先看那里。</summary>
     static void AppendGable(List<Vector3> verts, List<Color> cols, List<int> tris,
                             Vector3 baseCenter, float width, float depth, float height, Quaternion rot, Color color)
-    {
-        int baseIndex = verts.Count;
-        float hw = width * 0.5f, hd = depth * 0.5f;
-        Color c = color.linear;
-
-        Vector3[] v =
-        {
-            new Vector3(-hw, 0f, -hd), new Vector3( hw, 0f, -hd), new Vector3( hw, 0f,  hd), new Vector3(-hw, 0f,  hd),
-            new Vector3(  0f, height, -hd), new Vector3(  0f, height,  hd),
-        };
-        foreach (var p in v) { verts.Add(baseCenter + rot * p); cols.Add(c); }
-
-        int[] faces = { 0, 4, 1, 2, 5, 3, 0, 5, 4, 0, 3, 5, 1, 5, 2, 1, 4, 5 };
-        var outTris = Route(color);
-        for (int i = 0; i < faces.Length; i++) outTris.Add(baseIndex + faces[i]);
-    }
+        => LowPoly.Gable(verts, cols, Route(color), baseCenter, width, depth, height, rot, color);
 
     /// <summary>圆柱 / 圆台（只有侧面）。capTop = true 时补一个顶盖：台阶、基座、平台这类
     /// "看得见顶面"的零件必须带盖子，否则顶面是空的、从上往下能直接看穿。</summary>
     static void AppendCylinder(List<Vector3> verts, List<Color> cols, List<int> tris,
                                Vector3 basePos, float height, float bottomR, float topR, int sides, Color color,
                                bool capTop = false)
-    {
-        int baseIndex = verts.Count;
-        Color c = color.linear;
-        var outTris = Route(color);
-
-        for (int i = 0; i <= sides; i++)
-        {
-            float a = (float)i / sides * Mathf.PI * 2f;
-            verts.Add(basePos + new Vector3(Mathf.Cos(a) * bottomR, 0f, Mathf.Sin(a) * bottomR));
-            cols.Add(c);
-        }
-        for (int i = 0; i <= sides; i++)
-        {
-            float a = (float)i / sides * Mathf.PI * 2f;
-            verts.Add(basePos + new Vector3(Mathf.Cos(a) * topR, height, Mathf.Sin(a) * topR));
-            cols.Add(c);
-        }
-
-        for (int i = 0; i < sides; i++)
-        {
-            int lo0 = baseIndex + i, lo1 = lo0 + 1;
-            int hi0 = baseIndex + sides + 1 + i, hi1 = hi0 + 1;
-            outTris.Add(lo0); outTris.Add(hi0); outTris.Add(lo1);
-            outTris.Add(lo1); outTris.Add(hi0); outTris.Add(hi1);
-        }
-
-        if (!capTop) return;
-
-        // 顶盖：以顶面圆心为中心的三角扇，绕序和地形朝上的面一致（法线朝上）
-        int center = verts.Count;
-        verts.Add(basePos + Vector3.up * height);
-        cols.Add(c);
-
-        for (int i = 0; i < sides; i++)
-        {
-            outTris.Add(center);
-            outTris.Add(baseIndex + sides + 2 + i);      // 顶面下一格
-            outTris.Add(baseIndex + sides + 1 + i);      // 顶面当前格
-        }
-    }
+        => LowPoly.Cylinder(verts, cols, Route(color), basePos, height, bottomR, topR, sides, color, capTop);
 
     static void AppendSphere(List<Vector3> verts, List<Color> cols, List<int> tris,
                              Vector3 center, float radius, Color color, int segments)
-    {
-        int rings = Mathf.Max(3, segments / 2);
-        int baseIndex = verts.Count;
-        Color c = color.linear;
-        var outTris = Route(color);
-
-        for (int r = 0; r <= rings; r++)
-        {
-            float phi = (float)r / rings * Mathf.PI;
-            float y = Mathf.Cos(phi) * radius;
-            float ring = Mathf.Sin(phi) * radius;
-
-            for (int s = 0; s <= segments; s++)
-            {
-                float theta = (float)s / segments * Mathf.PI * 2f;
-                verts.Add(center + new Vector3(Mathf.Sin(theta) * ring, y, Mathf.Cos(theta) * ring));
-                cols.Add(c);
-            }
-        }
-
-        for (int r = 0; r < rings; r++)
-        {
-            for (int s = 0; s < segments; s++)
-            {
-                int i0 = baseIndex + r * (segments + 1) + s;
-                int i1 = i0 + 1;
-                int i2 = i0 + segments + 1;
-                int i3 = i2 + 1;
-                outTris.Add(i0); outTris.Add(i2); outTris.Add(i1);
-                outTris.Add(i1); outTris.Add(i2); outTris.Add(i3);
-            }
-        }
-    }
+        => LowPoly.Sphere(verts, cols, Route(color), center, radius, color, segments);
 
     /// <summary>圆环 / 圆盘（广场水池、花圃顶、教堂铺地、圆窗都靠它；innerR = 0 就是一个实心圆盘）。
     /// rot 用来把圆盘立起来（法线朝水平方向），比如教堂正面的圆窗。</summary>
     static void AppendRing(List<Vector3> verts, List<Color> cols, List<int> tris,
                            Vector3 center, float innerR, float outerR, int sides, Quaternion rot, Color color)
-    {
-        int baseIndex = verts.Count;
-        Color c = color.linear;
-        var outTris = Route(color);
-
-        for (int i = 0; i <= sides; i++)
-        {
-            float a = (float)i / sides * Mathf.PI * 2f;
-            float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
-            verts.Add(center + rot * new Vector3(ca * innerR, 0f, sa * innerR));
-            cols.Add(c);
-            verts.Add(center + rot * new Vector3(ca * outerR, 0f, sa * outerR));
-            cols.Add(c);
-        }
-
-        for (int i = 0; i < sides; i++)
-        {
-            int i0 = baseIndex + i * 2;
-            int i1 = i0 + 1;
-            int i2 = i0 + 2;
-            int i3 = i0 + 3;
-            outTris.Add(i0); outTris.Add(i2); outTris.Add(i1);
-            outTris.Add(i1); outTris.Add(i2); outTris.Add(i3);
-        }
-    }
+        => LowPoly.Ring(verts, cols, Route(color), center, innerR, outerR, sides, rot, color);
 }

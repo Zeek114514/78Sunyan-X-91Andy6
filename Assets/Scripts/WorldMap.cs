@@ -34,12 +34,20 @@ public class WorldMap : MonoBehaviour
     // ---------- 大地图视野 ----------
     // 打开时以角色为中心显示一片区域（不是整张图），按住左键拖拽可以看别的区域，滚轮缩放，右键回到角色。
     const float ViewMin = 140f;     // 拉到最近时屏幕纵向能看到多少米
-    const float ViewMax = 640f;     // 拉到最远时（比整张地图还大，等于看全图）
+    const float ViewMax = 2000f;    // 拉到最远时能看全图（地图 1800 米；比它大时下面的代码会把视野居中）
     float   _viewMeters = 260f;     // 当前视野跨度（世界米）
     Vector2 _viewCenter;            // 当前视野中心（世界坐标 XZ）
     float   _pxPerMeter = 3f;       // 上一帧的缩放（像素 / 米），拖拽换算用
     Vector2 _dragMouse;             // 上一帧鼠标位置（算拖拽增量）
     bool    _dragging;
+    float   _dragMoved;             // 这一次按下累计拖了多远（小于阈值算"点了一下" → 点锚点传送）
+    int     _selIdx = -1;           // 键盘选中的锚点在 TeleportAnchor.All 里的下标（-1 = 没选）
+
+    // ---------- 传送黑场过渡 ----------
+    // 落地那一瞬间把屏幕压黑（短暂停留）再淡出：一秒之内跨越几百米不至于"啪"地跳过去。
+    const float FadeHold = 0.12f;   // 全黑停留
+    const float FadeOut  = 0.5f;    // 淡出时长
+    float _fade, _fadeHold;
 
     public void Init(OpenWorld world, Transform player)
     {
@@ -61,26 +69,47 @@ public class WorldMap : MonoBehaviour
 
     void Update()
     {
-        if (_map == null || VoxelChat.IsOpen || VoxelGacha.IsOpen) return;
+        // 传送黑场：地图关掉之后还要继续淡出，所以放在最前面（不受下面那些早退影响）
+        if (_fade > 0f)
+        {
+            if (_fadeHold > 0f) _fadeHold -= Time.unscaledDeltaTime;
+            else _fade = Mathf.Max(0f, _fade - Time.unscaledDeltaTime / FadeOut);
+        }
+
+        if (_map == null || VoxelChat.IsOpen || VoxelGacha.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen) return;
 
         if (Input.GetKeyDown(KeyCode.M)) Toggle();
         else if (IsOpen && Input.GetKeyDown(KeyCode.Escape)) Toggle();
 
         if (IsOpen)
         {
+            // 键盘兜底：Tab 在已解锁的锚点之间循环、Enter 传送选中的那个（鼠标点不到图钉时用）
+            if (Input.GetKeyDown(KeyCode.Tab)) CycleSelection();
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) TeleportSelected();
+
             // 滚轮缩放：视野跨度越小越近
             float wheel = Input.GetAxisRaw("Mouse ScrollWheel");
             if (Mathf.Abs(wheel) > 0.001f)
                 _viewMeters = Mathf.Clamp(_viewMeters * (1f - wheel * 0.6f), ViewMin, ViewMax);
 
             // 按住左键拖动：把鼠标位移换算成世界米，拖着看别的区域
-            if (Input.GetMouseButtonDown(0)) _dragging = true;
-            if (Input.GetMouseButtonUp(0)) _dragging = false;
+            if (Input.GetMouseButtonDown(0))
+            {
+                _dragging = true;
+                _dragMoved = 0f;
+            }
 
             if (_dragging)
             {
                 Vector2 delta = (Vector2)Input.mousePosition - _dragMouse;
+                _dragMoved += delta.magnitude;
                 _viewCenter -= delta / Mathf.Max(0.001f, _pxPerMeter);
+            }
+
+            if (Input.GetMouseButtonUp(0))
+            {
+                _dragging = false;
+                if (_dragMoved < 6f) TryClickAnchor();      // 基本没拖动 = 点了一下 → 试试点传送锚点
             }
 
             // 右键：视野拉回角色身上
@@ -108,6 +137,7 @@ public class WorldMap : MonoBehaviour
         {
             _openTime = Time.unscaledTime;
             _viewMeters = 260f;
+            _selIdx = -1;                                // 每次打开都从"没选中"开始，Tab 从第一个已解锁的算起
             CenterOnPlayer();                            // 打开时以角色为中心的一片区域
             _dragMouse = Input.mousePosition;
             Cursor.lockState = CursorLockMode.None;      // 开地图时松开鼠标、角色自然停下（VoxelPlayer 看鼠标锁）
@@ -126,11 +156,18 @@ public class WorldMap : MonoBehaviour
     void OnGUI()
     {
         if (_map == null) return;
+        if (TitleScreen.IsOpen) return;                           // 开幕动画期间把屏幕让出去（小地图也不画）
+        if (VoxelMenu.IsOpen) return;                             // 菜单是全屏的，小地图别压在它上面
         if (Event.current.type != EventType.Repaint) return;      // 每帧只画一次，别在事件阶段重复画
         EnsureStyles();
 
         DrawMinimap();
         if (IsOpen) DrawBigMap();
+
+        // 传送黑场：压在所有东西最上面 —— 必须画在这里而不是大地图里，
+        // 因为传送的第一件事就是把大地图关掉（画在 DrawBigMap 里就永远看不见）
+        if (_fade > 0f)
+            VoxelHud.FillRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, _fade));
     }
 
     /// <summary>左上角圆形小地图：跟人走、指北、显示附近地标与 NPC</summary>
@@ -172,6 +209,17 @@ public class WorldMap : MonoBehaviour
             DrawPin(sp, new Color(0.98f, 0.86f, 0.35f), 7f);
         }
 
+        // 附近的已解锁锚点（金点：走远了也能一眼看见哪儿有传送点）
+        for (int i = 0; i < TeleportAnchor.All.Count; i++)
+        {
+            var a = TeleportAnchor.All[i];
+            if (a == null || !a.Unlocked) continue;
+
+            Vector2 sp = MiniPoint(cx, cy, a.transform.position.x, a.transform.position.z, pxPerMeter);
+            if (!InMiniDisc(sp, cx, cy)) continue;
+            DrawPin(sp, new Color(1f, 0.92f, 0.55f), 10f);
+        }
+
         // 玩家箭头（永远在正中间，按朝向旋转）
         DrawArrow(cx, cy, 26f, _player.eulerAngles.y, Color.white);
 
@@ -190,8 +238,7 @@ public class WorldMap : MonoBehaviour
         VoxelHud.FillRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.04f, 0.06f, 0.10f, 0.86f));
 
         // 面板是屏幕中间一块方区；显示范围由 _viewMeters 决定（以角色为中心的一片，不是整张图）
-        float side = Mathf.Min(Screen.width, Screen.height) * 0.86f;
-        var panel = new Rect((Screen.width - side) * 0.5f, (Screen.height - side) * 0.5f + 14f, side, side);
+        var panel = BigPanel();
 
         // 视野中心夹在地图内（视野比整张地图还大时直接居中）
         float halfView = _viewMeters * 0.5f;
@@ -231,6 +278,40 @@ public class WorldMap : MonoBehaviour
             VoxelHud.LabelShadow(new Rect(sp.x + 11f, sp.y - 10f, 160f, 20f), m.name, _label);
         }
 
+        // 传送锚点：已解锁的金色可点、未点亮的灰色（都在视野里才画）——
+        // 画在地标之后，图钉压在建筑标记上面
+        for (int i = 0; i < TeleportAnchor.All.Count; i++)
+        {
+            var a = TeleportAnchor.All[i];
+            if (a == null) continue;
+
+            Vector3 ap = a.transform.position;
+            if (Mathf.Abs(ap.x - _viewCenter.x) > halfView || Mathf.Abs(ap.z - _viewCenter.y) > halfView) continue;
+
+            Vector2 sp = MapPoint(panel, pxPerMeter, ap.x, ap.z);
+
+            bool selected = i == _selIdx;
+            bool statue = a.IsStatue;
+            Color pin = statue ? new Color(0.86f, 0.95f, 1f)
+                      : a.Unlocked ? new Color(1f, 0.92f, 0.55f)
+                      : new Color(0.52f, 0.58f, 0.62f);
+            float size = statue ? 22f
+                       : a.Unlocked ? (a.Major ? 17f : 13f)
+                       : (a.Major ? 12f : 10f);
+            DrawPin(sp, selected ? new Color(1f, 1f, 0.85f) : pin, selected ? size + 3f : size);
+            if (statue) DrawCircleOutline(sp, size * 0.78f, new Color(0.78f, 0.92f, 1f, 0.9f));   // 神像外面再描一圈
+            if (selected) DrawCircleOutline(sp, 16f, new Color(1f, 0.98f, 0.72f, 0.95f));
+
+            // 名字：七天神像一定写；关键锚点（城镇 / 地标 / 村口）和已解锁的也写；
+            // 普通锚点要放大到 220 米以内才写（几十个普通锚点全写名字会糊成一片）
+            bool showName = statue || a.Major || a.Unlocked || selected || _viewMeters <= 220f;
+            if (showName)
+                VoxelHud.LabelShadow(new Rect(sp.x + 12f, sp.y - 10f, 200f, 20f),
+                                     statue ? a.SiteName
+                                            : a.Unlocked ? a.SiteName : a.SiteName + "（未点亮）",
+                                     statue || a.Major || a.Unlocked ? _label : _small);
+        }
+
         // NPC 小点（同样只画视野内的）
         for (int i = 0; i < VoxelNpc.All.Count; i++)
         {
@@ -249,7 +330,7 @@ public class WorldMap : MonoBehaviour
         DrawArrow(pp.x, pp.y, 26f, _player.eulerAngles.y, Color.white);
 
         // 标题 / 坐标 / 图例：固定在屏幕上，拖地图时不会跟着跑出去
-        VoxelHud.LabelShadow(new Rect(0f, 8f, Screen.width, 30f), "蒙德湖畔 · 世界地图", _title);
+        VoxelHud.LabelShadow(new Rect(0f, 8f, Screen.width, 30f), "蒙德 · 璃月 · 世界地图", _title);
         VoxelHud.LabelShadow(new Rect(0f, 38f, Screen.width, 22f),
                              $"当前位置 {RegionName(_player.position.x, _player.position.z)}    " +
                              $"X {_player.position.x:0}  Z {_player.position.z:0}    " +
@@ -257,16 +338,115 @@ public class WorldMap : MonoBehaviour
                              _small);
 
         VoxelHud.LabelShadow(new Rect(0f, Screen.height - 54f, Screen.width, 22f),
-                             "红顶 = 民居    金色 = 城门 / 广场    红色 = 丘丘人营地    白蓝 = 龙脊雪山    黄点 = NPC",
+                             "红顶 = 民居    金色 = 城门 / 广场    红色 = 丘丘人营地    白蓝 = Andy的雪顶    黄点 = NPC    " +
+                             "金色大图钉 = 已解锁传送锚点（灰的还没点亮）    " +
+                             "浅蓝大图钉 = 七天神像（走近回满生命与体力，也能传送）",
                              _small);
         VoxelHud.LabelShadow(new Rect(0f, Screen.height - 30f, Screen.width, 22f),
-                             "按住左键拖拽 查看其他区域 · 滚轮 缩放 · 右键 回到角色 · M / Esc 关闭",
+                             "按住左键拖拽 查看其他区域 · 滚轮 缩放 · 右键 回到角色 · 点金色锚点 传送 · " +
+                             $"Tab 选下一个锚点 / Enter 传送它（已解锁 {TeleportAnchor.UnlockedCount}/{TeleportAnchor.All.Count} 处）· M / Esc 关闭",
                              _hint);
     }
 
     Vector2 MapPoint(Rect panel, float pxPerMeter, float wx, float wz) => new Vector2(
         panel.center.x + (wx - _viewCenter.x) * pxPerMeter,
         panel.center.y - (wz - _viewCenter.y) * pxPerMeter);     // 北在上
+
+    /// <summary>大地图面板的屏幕矩形。画图和"点锚点"必须用同一份，所以抽出来</summary>
+    static Rect BigPanel()
+    {
+        float side = Mathf.Min(Screen.width, Screen.height) * 0.86f;
+        return new Rect((Screen.width - side) * 0.5f, (Screen.height - side) * 0.5f + 14f, side, side);
+    }
+
+    // ---------- 点锚点传送 ----------
+
+    /// <summary>在大地图上点一下：命中已解锁的传送锚点就传送过去。
+    /// 未点亮的锚点不给传（和原神一样，得先走过去点亮）</summary>
+    void TryClickAnchor()
+    {
+        var panel = BigPanel();
+
+        Vector2 mouse = Input.mousePosition;
+        mouse.y = Screen.height - mouse.y;                       // Input 是左下原点，GUI 是左上原点
+        if (!panel.Contains(mouse)) return;
+
+        float pxPerMeter = panel.width / Mathf.Max(0.001f, _viewMeters);
+
+        TeleportAnchor best = null;
+        int bestIdx = -1;
+        float bestDist = 18f;                                    // 图钉的点击半径（像素）
+
+        for (int i = 0; i < TeleportAnchor.All.Count; i++)
+        {
+            var a = TeleportAnchor.All[i];
+            if (a == null || !a.Unlocked) continue;
+
+            Vector3 ap = a.transform.position;
+            float d = (MapPoint(panel, pxPerMeter, ap.x, ap.z) - mouse).magnitude;
+            if (d < bestDist) { bestDist = d; bestIdx = i; best = a; }
+        }
+
+        if (best == null) return;
+
+        _selIdx = bestIdx;                                       // 点中的那个也变成"键盘选中的"，高亮跟着走
+        TeleportTo(best);
+    }
+
+    /// <summary>Tab：在已解锁的锚点之间循环选中；视野跟着挪过去，保证选中的那个一定看得见</summary>
+    void CycleSelection()
+    {
+        if (TeleportAnchor.All.Count == 0) return;
+
+        int start = _selIdx < 0 ? 0 : _selIdx + 1;
+        for (int k = 0; k < TeleportAnchor.All.Count; k++)
+        {
+            int i = (start + k) % TeleportAnchor.All.Count;
+            var a = TeleportAnchor.All[i];
+            if (a == null || !a.Unlocked) continue;
+
+            _selIdx = i;
+            _viewCenter = new Vector2(a.transform.position.x, a.transform.position.z);
+            return;
+        }
+
+        _selIdx = -1;                                            // 一个都还没解锁
+    }
+
+    /// <summary>Enter：传送去键盘选中的那个锚点</summary>
+    void TeleportSelected()
+    {
+        if (_selIdx < 0 || _selIdx >= TeleportAnchor.All.Count) return;
+
+        var a = TeleportAnchor.All[_selIdx];
+        if (a != null && a.Unlocked) TeleportTo(a);
+    }
+
+    /// <summary>传送到某处锚点：先把地图关掉（顺带把鼠标锁回去），再挪人。
+    /// 落地后面朝该去的地方（村口朝村里、码头朝海湾），并压一段黑场 —— 跨几百米的瞬移不至于太生硬</summary>
+    void TeleportTo(TeleportAnchor anchor)
+    {
+        if (IsOpen) Toggle();
+        else { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
+
+        _selIdx = -1;
+
+        var player = _player.GetComponent<VoxelPlayer>();
+        if (player != null)
+        {
+            player.Teleport(anchor.LandPos + Vector3.up * 0.25f);
+            player.SetYaw(anchor.FaceYaw);
+        }
+        else
+        {
+            _player.position = anchor.LandPos;
+        }
+
+        _fade = 1f;
+        _fadeHold = FadeHold;
+
+        VoxelChat.Announce($"传送至 {anchor.SiteName}");
+    }
 
     // ---------- 小地图圆形裁剪 ----------
 
@@ -323,6 +503,38 @@ public class WorldMap : MonoBehaviour
             case 11: return new Color(1.00f, 1.00f, 1.00f);   // 龙脊雪山主峰
             case 12: return new Color(0.66f, 0.88f, 0.98f);   // 冰湖
             case 13: return new Color(0.72f, 0.98f, 0.86f);   // 测试平台（100 个 NPC）
+            // 14~23：野外建筑（村落 / 设施 / 遗迹），编号和 WildBuildings.MarkerKind 对齐
+            case 14: return new Color(0.98f, 0.86f, 0.52f);   // 野外村落
+            case 15: return new Color(0.94f, 0.72f, 0.40f);   // 瞭望塔
+            case 16: return new Color(0.92f, 0.78f, 0.44f);   // 风车
+            case 17: return new Color(0.72f, 0.80f, 0.58f);   // 水车磨坊
+            case 18: return new Color(0.90f, 0.66f, 0.44f);   // 木桥
+            case 19: return new Color(0.80f, 0.66f, 0.46f);   // 猎人小屋
+            case 20: return new Color(0.84f, 0.70f, 0.48f);   // 伐木场
+            case 21: return new Color(0.86f, 0.80f, 0.62f);   // 篝火休息点
+            case 22: return new Color(0.78f, 0.80f, 0.86f);   // 遗迹（断柱石阵 / 残墙）
+            case 23: return new Color(0.70f, 0.94f, 0.86f);   // 风神祭坛
+            case 24: return new Color(0.88f, 0.72f, 0.99f);   // 解密场地（元素方碑）
+            // 30~40：璃月野外建筑，编号和 LiyueBuildings.MarkerKind 对齐（30 + LiyueKind）
+            case 30: return new Color(0.90f, 0.86f, 0.78f);   // 璃月村落（白墙黛瓦）
+            case 31: return new Color(0.94f, 0.42f, 0.34f);   // 楼阁（朱红）
+            case 32: return new Color(0.98f, 0.78f, 0.36f);   // 牌坊（金）
+            case 33: return new Color(0.72f, 0.62f, 0.46f);   // 吊脚楼（木）
+            case 34: return new Color(0.86f, 0.86f, 0.84f);   // 石拱桥
+            case 35: return new Color(0.82f, 0.90f, 0.66f);   // 茶棚（竹）
+            case 36: return new Color(0.60f, 0.74f, 0.92f);   // 水车（水）
+            case 37: return new Color(0.96f, 0.84f, 0.52f);   // 岩神像（岩金）
+            case 38: return new Color(0.74f, 0.72f, 0.68f);   // 石林遗迹（石灰岩）
+            case 39: return new Color(0.78f, 0.88f, 0.52f);   // 梯田农舍（水田绿）
+            case 40: return new Color(0.66f, 0.80f, 0.90f);   // 码头
+            // 41~44：璃月港（阶段 E，见 LiyueHarborCity.HarborMarkers）
+            case 41: return new Color(1.00f, 0.94f, 0.70f);   // 灯塔（灯）
+            case 42: return new Color(0.92f, 0.62f, 0.34f);   // 钟楼（铜钟）
+            case 43: return new Color(0.80f, 0.84f, 0.88f);   // 主码头
+            case 44: return new Color(0.96f, 0.86f, 0.62f);   // 上城
+            // 45~46：璃月解密场地（阶段 F，见 LiyuePuzzleSpawner.MarkerKind）
+            case 45: return new Color(0.99f, 0.78f, 0.44f);   // 石灯阵（灯火）
+            case 46: return new Color(0.90f, 0.62f, 0.50f);   // 石鼓
             default: return new Color(0.55f, 0.78f, 0.90f);   // 码头
         }
     }
@@ -377,6 +589,32 @@ public class WorldMap : MonoBehaviour
     /// <summary>当前区域名（小地图 / 大地图都显示）</summary>
     public static string RegionName(float x, float z)
     {
+        // ---------- 稻妻：东南海上的群岛，先报它（不然全被"外海 / 丘陵"抢走） ----------
+        if (InazumaIsles.RegionWeight(x, z) > 0.15f)
+        {
+            if (Vector2.Distance(new Vector2(x, z), InazumaIsles.CastlePos) < 92f) return "稻妻 · 将军府";
+            if (Vector2.Distance(new Vector2(x, z), InazumaIsles.PortPos) < 62f) return "稻妻 · 港口";
+            if (Vector2.Distance(new Vector2(x, z), InazumaIsles.ShrineIsle) < 78f) return "稻妻 · 神社离岛";
+            if (Vector2.Distance(new Vector2(x, z), InazumaIsles.SpireIsle) < 66f) return "稻妻 · 岩柱离岛";
+            if (OpenWorld.IsInazumaLand(x, z)) return "稻妻 · 鸣神岛";
+            return "稻妻 · 外海";
+        }
+
+        // ---------- 旧大陆之外的深海：不管离稻妻多远，这一圈都是海 ----------
+        if (Mathf.Max(x, z) > 1430f && OpenWorld.Height(x, z) < OpenWorld.WaterLevel + 0.5f)
+            return "外海";
+
+        // ---------- 璃月港：人工台地 + 双湾，先报它（不然会被下面的"峰林 / 丘陵"抢走） ----------
+        float harbor = Vector2.Distance(new Vector2(x, z), new Vector2(LiyueHarbor.HarborX, LiyueHarbor.HarborZ));
+        if (harbor < LiyueHarbor.QuayR) return "Andy的港门 · 港内";
+        if (harbor < LiyueHarbor.QuayR + LiyueHarbor.QuayFalloff + 20f) return "Andy的港门 · 城外码头";
+
+        if (Vector2.Distance(new Vector2(x, z), new Vector2(LiyueHarbor.InnerBayX, LiyueHarbor.InnerBayZ))
+            < LiyueHarbor.InnerBayR) return "Andy的港门 · 内湾";
+        if (Vector2.Distance(new Vector2(x, z), new Vector2(LiyueHarbor.BayX, LiyueHarbor.BayZ))
+            < LiyueHarbor.BayR) return "璃月 · 外海湾";
+
+        // ---------- 蒙德 ----------
         float d = Vector2.Distance(new Vector2(x, z), new Vector2(MondstadtTown.CenterX, MondstadtTown.CenterZ));
         if (d < MondstadtTown.WallR) return "湖心城 · 城内";
         if (d < MondstadtTown.IslandR) return "湖心城 · 城墙外";
@@ -385,15 +623,29 @@ public class WorldMap : MonoBehaviour
         if (Vector2.Distance(new Vector2(x, z), new Vector2(MondstadtTown.CathedralX, MondstadtTown.CathedralZ))
             < MondstadtTown.CathedralR) return "大教堂高台";
 
-        // 龙脊雪山：按高度分层报区域名
-        if (OpenWorld.IsFrozenLake(x, z)) return "龙脊雪山 · 冰湖";
+        // 「Andy的雪顶」：按高度分层报区域名
+        if (OpenWorld.IsFrozenLake(x, z)) return "Andy的雪顶 · 冰湖";
         float snowH = OpenWorld.Height(x, z);
-        if (snowH > OpenWorld.SnowLine + 70f) return "龙脊雪山 · 雪线以上";
-        if (OpenWorld.SnowFactor(x, z) > 0.12f) return "龙脊雪山 · 山腰";
+        if (snowH > OpenWorld.SnowLine + 70f) return "Andy的雪顶 · 雪线以上";
+        if (OpenWorld.SnowFactor(x, z) > 0.12f) return "Andy的雪顶 · 山腰";
 
-        if (z < MondstadtTown.SouthBridgeZ - 6f) return "南岸草原";
-        if (x < 120f) return "西岸湖区";
-        return "湖畔草原";
+        // ---------- 剩下的按国度分：分界带（权重 0.35~0.65）两边都不算 ----------
+        float lw = OpenWorld.LiyueWeight(x, z);
+        if (lw > 0.65f)
+        {
+            if (OpenWorld.TerraceWeight(x, z) > 0.3f) return "璃月 · 梯田";
+            if (OpenWorld.InKarstRegion(x, z)) return "璃月 · 喀斯特峰林";
+            if (OpenWorld.ForestDensity(x, z) > 0.62f) return "璃月 · 竹林";
+            return "璃月 · 丘陵";
+        }
+        if (lw < 0.35f)
+        {
+            if (z < MondstadtTown.SouthBridgeZ - 6f) return "南岸草原";
+            if (x < 120f) return "西岸湖区";
+            return "湖畔草原";
+        }
+
+        return "雪顶山麓 · 分界带";
     }
 
     // ---------- 烘焙世界俯视图 ----------

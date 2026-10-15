@@ -11,8 +11,8 @@ using UnityEngine.Rendering;
 /// </summary>
 public class MonsterSpawner : MonoBehaviour
 {
-    const int   CampCount        = 6;     // 营地数
-    const int   SlimeGroupCount  = 9;     // 史莱姆组数
+    const int   CampCount        = 9;     // 营地数（地图 850 米，按面积比原来 600 米多算一半）
+    const int   SlimeGroupCount  = 14;    // 史莱姆组数
     const float MinCampSpacing    = 62f;  // 营地之间至少隔这么远
     const float MinSlimeSpacing   = 34f;  // 史莱姆组之间至少隔这么远
 
@@ -21,6 +21,9 @@ public class MonsterSpawner : MonoBehaviour
     VoxelInteraction _inventory;
     Material _material;
     Transform _root;
+
+    /// <summary>营地位置（宝箱分布要避开营地里的棚子 / 木箱，免得刷在建筑里）</summary>
+    public static readonly List<Vector2> CampSites = new List<Vector2>();
 
     readonly List<Vector2> _campSites  = new List<Vector2>();
     readonly List<Vector2> _slimeSites = new List<Vector2>();
@@ -34,6 +37,8 @@ public class MonsterSpawner : MonoBehaviour
         _player = player;
         _inventory = inventory;
         _material = world.Material;
+
+        CampSites.Clear();          // 静态列表，重开一局要清干净
 
         _root = new GameObject("Monsters").transform;
         _root.SetParent(transform, false);
@@ -73,6 +78,19 @@ public class MonsterSpawner : MonoBehaviour
         if (OpenWorld.Slope(x, z) > 0.18f) return false;                             // 要平地
         if (OpenWorld.ForestDensity(x, z) > maxForest) return false;                 // 别扎在密林里
         if (MondstadtTown.IsRoad(x, z)) return false;
+
+        // 别扎进地台的边坡过渡带（同时覆盖野外建筑和解密场地的台子）：
+        // 那里是斜坡，营地摆上去会一半埋进土里
+        if (OpenWorld.OnPadSlope(x, z)) return false;
+
+        // 野外建筑的整个影响范围（占地 + 平整余量 + 边坡带）都要躲开（蒙德 + 璃月两套）
+        if (WildSiteSpawner.InsideSiteArea(x, z, 6f)) return false;
+        if (LiyueSiteSpawner.InsideSiteArea(x, z, 6f)) return false;
+        if (PuzzleSpawner.NearPuzzle(x, z, 8f)) return false;                         // 也别扎进解密场地
+        if (LiyuePuzzleSpawner.NearLiyuePuzzle(x, z, 8f)) return false;               // 璃月的石灯阵 / 石鼓同理
+
+        // 璃月港（阶段 E）：城里是人工台地，营地的棚子按"地形高度"摆会埋进台面里 —— 整片让开
+        if (LiyueHarbor.InCity(x, z)) return false;
 
         var p = new Vector2(x, z);
         float townDist = Vector2.Distance(p, new Vector2(MondstadtTown.CenterX, MondstadtTown.CenterZ));
@@ -217,7 +235,7 @@ public class MonsterSpawner : MonoBehaviour
         var flame = new GameObject("Flame").transform;
         flame.SetParent(go.transform, false);
         flame.position = c + rot * new Vector3(0.4f, 0.55f, 1.1f);
-        BuildFlame(flame);
+        BuildFlame(flame, _material);
         _flames.Add(flame);
 
         // 营地里的丘丘人：1 只暴徒 + 2~3 只普通
@@ -239,6 +257,7 @@ public class MonsterSpawner : MonoBehaviour
         }
 
         MondstadtTown.Markers.Add(new MondstadtTown.MapMarker { name = "丘丘人营地", x = cx, z = cz, kind = 9 });
+        CampSites.Add(new Vector2(cx, cz));
         _campsBuilt++;
     }
 
@@ -314,14 +333,15 @@ public class MonsterSpawner : MonoBehaviour
             m.Box(rack + rot * new Vector3(i * 0.6f, 1.45f, 0f), new Vector3(0.3f, 0.8f, 0.08f), rot, hide, hide);
     }
 
-    /// <summary>火苗：一内一外两个小球（橙色外焰 + 亮黄内焰），由 MonsterSpawner 每帧抖动</summary>
-    void BuildFlame(Transform parent)
+    /// <summary>火苗：一内一外两个小球（橙色外焰 + 亮黄内焰），由各自的分发器每帧抖动。
+    /// 野外建筑的篝火（WildSiteSpawner）也用同一个火苗，放一起才是一套火</summary>
+    public static void BuildFlame(Transform parent, Material material)
     {
         var outer = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         outer.name = "FlameOuter";
         outer.transform.SetParent(parent, false);
         outer.transform.localScale = new Vector3(0.55f, 0.85f, 0.55f);
-        BakeFlat(outer, new Color32(0xf2, 0x7a, 0x24, 255));
+        BakeFlat(outer, new Color32(0xf2, 0x7a, 0x24, 255), material);
         Destroy(outer.GetComponent<Collider>());
 
         var inner = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -329,17 +349,17 @@ public class MonsterSpawner : MonoBehaviour
         inner.transform.SetParent(parent, false);
         inner.transform.localScale = new Vector3(0.32f, 0.5f, 0.32f);
         inner.transform.localPosition = new Vector3(0f, -0.1f, 0f);
-        BakeFlat(inner, new Color32(0xff, 0xdc, 0x6e, 255));
+        BakeFlat(inner, new Color32(0xff, 0xdc, 0x6e, 255), material);
         Destroy(inner.GetComponent<Collider>());
     }
 
-    void BakeFlat(GameObject go, Color color)
+    static void BakeFlat(GameObject go, Color color, Material material)
     {
         var mesh = go.GetComponent<MeshFilter>().mesh;
         var colors = new Color[mesh.vertexCount];
         for (int i = 0; i < colors.Length; i++) colors[i] = color.linear;
         mesh.SetColors(colors);
-        go.GetComponent<MeshRenderer>().sharedMaterial = _material;
+        go.GetComponent<MeshRenderer>().sharedMaterial = material;
     }
 
     void BuildSlimeGroup(float x, float z)

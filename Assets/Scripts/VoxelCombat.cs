@@ -29,9 +29,9 @@ public class VoxelCombat : MonoBehaviour
         if (_cooldown > 0f) _cooldown -= Time.deltaTime;
         if (_hitFlash > 0f) _hitFlash -= Time.deltaTime;
 
-        // 鼠标没锁（开始面板 / 对话框 / 地图开着）时不打；划面打开时 VoxelPlayer 也停了
+        // 鼠标没锁（开始面板 / 对话框 / 地图 / 开幕动画开着）时不打；划面打开时 VoxelPlayer 也停了
         if (Cursor.lockState != CursorLockMode.Locked) return;
-        if (VoxelChat.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen) return;
+        if (VoxelChat.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen) return;
 
         if (Input.GetMouseButtonDown(0) && _cooldown <= 0f) Attack();
     }
