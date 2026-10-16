@@ -139,6 +139,7 @@ public class TeleportAnchor : MonoBehaviour
                 VoxelStats.Instance != null && VoxelStats.Instance.Bless())
             {
                 VoxelChat.Announce($"{SiteName} 已为你恢复生命与体力");
+                VoxelAudio.PlaySfxAt("heal", transform.position + Vector3.up * 3f, 0.8f);
 
                 // 在神像前恢复满三次 → 解锁"七天神像"（成就卡片由 VoxelHud 弹）
                 if (Achievements.MarkBlessing()) VoxelHud.UnlockAchievement("blessing");
@@ -161,9 +162,13 @@ public class TeleportAnchor : MonoBehaviour
             _crystalFilter.sharedMesh = AnchorMesh(on ? Alignment.CrystalLit : Alignment.CrystalDim);
 
         if (on && announce)
+        {
             VoxelChat.Announce(IsStatue
                 ? $"解锁七天神像 · {SiteName}（大地图上点它传送，走到神像脚边还能回满生命与体力）"
                 : $"解锁传送锚点 · {SiteName}（大地图上点它就能传送）");
+
+            VoxelAudio.PlaySfxAt("heal", transform.position + Vector3.up * 3f, 0.7f);   // 点亮的一记清响
+        }
     }
 
     // ================= 名牌 =================

@@ -76,8 +76,7 @@ public class WorldMap : MonoBehaviour
             else _fade = Mathf.Max(0f, _fade - Time.unscaledDeltaTime / FadeOut);
         }
 
-        if (_map == null || VoxelChat.IsOpen || VoxelGacha.IsOpen || TitleScreen.IsOpen ||
-            VoxelMenu.IsOpen || VoxelInventory.IsOpen || VoxelCharacterScreen.IsOpen) return;
+        if (_map == null || VoxelPanels.InputBlocked) return;
 
         if (Input.GetKeyDown(KeyCode.M)) Toggle();
         else if (IsOpen && Input.GetKeyDown(KeyCode.Escape)) Toggle();
@@ -157,10 +156,7 @@ public class WorldMap : MonoBehaviour
     void OnGUI()
     {
         if (_map == null) return;
-        if (TitleScreen.IsOpen) return;                           // 开幕动画期间把屏幕让出去（小地图也不画）
-        if (VoxelMenu.IsOpen) return;                             // 菜单是全屏的，小地图别压在它上面
-        if (VoxelInventory.IsOpen) return;                        // 背包也是全屏的，同上
-        if (VoxelCharacterScreen.IsOpen) return;                  // 角色界面同上
+        if (VoxelPanels.ModalOpen) return;                        // 全屏面板（开幕动画 / 菜单 / 背包 / 角色…）开着时小地图也收起来
         if (Event.current.type != EventType.Repaint) return;      // 每帧只画一次，别在事件阶段重复画
         EnsureStyles();
 
@@ -449,6 +445,7 @@ public class WorldMap : MonoBehaviour
         _fadeHold = FadeHold;
 
         VoxelChat.Announce($"传送至 {anchor.SiteName}");
+        VoxelAudio.PlaySfx("teleport", 0.9f);      // 传送那一声（黑场期间正好听得见）
     }
 
     // ---------- 小地图圆形裁剪 ----------

@@ -710,6 +710,7 @@ public class OpenWorld : MonoBehaviour
         AddKeepOut(LiyueHarbor.HarborX, LiyueHarbor.HarborZ, LiyueHarbor.QuayR + 12f);
 
         BuildProps();
+        VoxelGrass.Build(transform, _material);     // 草地细节层：和树石一样在生成期烘进分块网格
         BuildSnowLandmarks();
         BuildTown();
         BuildWater();

@@ -290,11 +290,33 @@ public class VoxelGacha : MonoBehaviour
     // ---------- 保底 / 历史存档 ----------
     // 每个池子各记各的保底（原神也是分开算的），总抽数全局共用
 
+    /// <summary>清掉祈愿的存档（总抽数 / 各池保底 / 出货历史）—— 菜单里那个"重置存档"调它。
+    /// 静态方法是因为菜单手上没有祈愿实例的引用，这里自己找一份把内存里的进度也刷回去</summary>
+    public static void ClearProgress()
+    {
+        PlayerPrefs.DeleteKey(SavePrefix + "Total");
+        PlayerPrefs.DeleteKey(SavePrefix + "HistCount");
+
+        for (int i = 0; i < Banners.Length; i++)
+        {
+            PlayerPrefs.DeleteKey(SavePrefix + "P5." + i);
+            PlayerPrefs.DeleteKey(SavePrefix + "P4." + i);
+            PlayerPrefs.DeleteKey(SavePrefix + "G5." + i);
+        }
+
+        for (int i = 0; i < HistoryMax + 4; i++)
+            PlayerPrefs.DeleteKey(SavePrefix + "Hist." + i);
+
+        PlayerPrefs.Save();
+
+        var gacha = FindObjectOfType<VoxelGacha>();
+        if (gacha != null) gacha.LoadProgress();
+    }
+
     void LoadProgress()
     {
         _totalPulls = PlayerPrefs.GetInt(SavePrefix + "Total", 0);
         _history.Clear();
-
         for (int i = 0; i < Banners.Length; i++)
         {
             _pity5[i]      = PlayerPrefs.GetInt(SavePrefix + "P5." + i, 0);
@@ -338,8 +360,7 @@ public class VoxelGacha : MonoBehaviour
             if (IsOpen && _results.Count > 0) { DismissResults(); return; }
 
             if (IsOpen) Close();
-            else if (!VoxelChat.IsOpen && !VoxelMenu.IsOpen && !VoxelInventory.IsOpen &&
-                     !VoxelCharacterScreen.IsOpen) Open();      // 对话框 / 菜单 / 背包 / 角色界面开着的时候不抢
+            else if (!VoxelPanels.InputBlocked) Open();      // 有别的面板占着输入时不抢
             return;
         }
 
@@ -816,7 +837,9 @@ public class VoxelGacha : MonoBehaviour
             LabelD(new Rect(d.x, d.y + d.height * 0.56f, d.width, d.height * 0.36f), cost, _sub);
         }
 
-        return hot && Event.current.type == EventType.MouseUp && Event.current.button == 0;
+        bool clicked = hot && Event.current.type == EventType.MouseUp && Event.current.button == 0;
+        if (clicked) VoxelAudio.Click();
+        return clicked;
     }
 
     void DrawFooter()

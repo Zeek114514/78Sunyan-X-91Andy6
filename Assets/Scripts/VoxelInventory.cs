@@ -104,9 +104,7 @@ public class VoxelInventory : MonoBehaviour
         if (!IsOpen)
         {
             // 只在"游戏内"才开：别的面板开着时鼠标是放开的，它们各自用 Esc 关
-            bool free = Cursor.lockState == CursorLockMode.Locked &&
-                        !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !WorldMap.IsOpen &&
-                        !VoxelCharacterScreen.IsOpen && !TitleScreen.IsOpen && !VoxelMenu.IsOpen;
+            bool free = VoxelPanels.CanUseInput;
 
             if (free && Input.GetKeyDown(KeyCode.B)) Open();
             return;
@@ -512,6 +510,7 @@ public class VoxelInventory : MonoBehaviour
             if (!_tabs[i].Contains(m)) continue;
 
             SetCategory((Cat)i);
+            VoxelAudio.Click();
             e.Use();
             return;
         }
@@ -524,6 +523,7 @@ public class VoxelInventory : MonoBehaviour
             if (!r.Contains(m)) continue;
 
             _selected = _items[i].Name;
+            VoxelAudio.Click();
             e.Use();
             return;
         }

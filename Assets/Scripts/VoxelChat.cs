@@ -44,8 +44,8 @@ public class VoxelChat : MonoBehaviour
 
     void Update()
     {
-        // 祈愿 / 菜单 / 背包 / 角色界面开着时不抢按键
-        if (VoxelGacha.IsOpen || VoxelMenu.IsOpen || VoxelInventory.IsOpen || VoxelCharacterScreen.IsOpen) return;
+        // 有全屏面板开着时不抢按键（祈愿 / 菜单 / 背包 / 角色 / 大地图 / 开幕动画）
+        if (VoxelPanels.ModalOpen) return;
 
         if (IsOpen)
         {
@@ -64,9 +64,8 @@ public class VoxelChat : MonoBehaviour
 
     void OnGUI()
     {
-        // 祈愿 / 菜单 / 背包 / 角色界面 / 开幕动画占满屏幕时，聊天日志先收起来
-        if (VoxelGacha.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen ||
-            VoxelInventory.IsOpen || VoxelCharacterScreen.IsOpen) return;
+        // 全屏面板占满屏幕时，聊天日志先收起来
+        if (VoxelPanels.ModalOpen) return;
 
         EnsureStyles();
 
@@ -177,8 +176,12 @@ public class VoxelChat : MonoBehaviour
                 }
                 break;
 
+            case "mute":
+                Log(VoxelAudio.ToggleMute() ? "已静音（再输一次 /mute 打开）" : "声音已打开");
+                break;
+
             case "help":
-                Log("可用指令：/fly 切换飞行    /eat 恢复饱食度    /status 查看状态");
+                Log("可用指令：/fly 切换飞行    /eat 恢复饱食度    /status 查看状态    /mute 静音");
                 break;
 
             default:

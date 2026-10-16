@@ -52,9 +52,8 @@ public class VoxelInteraction : MonoBehaviour
     void Update()
     {
         if (_camera == null) return;
-        // 对话框 / 祈愿页面 / 大地图 / 背包 / 角色界面 / 开幕动画打开时不响应按键和鼠标（大地图自己管鼠标锁）
-        if (VoxelChat.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen || VoxelInventory.IsOpen ||
-            VoxelCharacterScreen.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen) return;
+        // 有面板占着输入（对话框 / 祈愿 / 大地图 / 背包 / 角色 / 菜单 / 开幕动画）就不响应按键和鼠标
+        if (VoxelPanels.InputBlocked) return;
 
         HandleCursor();
 

@@ -237,10 +237,8 @@ public class LootChest : MonoBehaviour
         }
     }
 
-    /// <summary>对话框 / 祈愿 / 大地图 / 背包 / 角色界面 / 开幕动画开着、或者鼠标没锁的时候，不响应 E 键和提示</summary>
-    static bool CanUseInput() =>
-        Cursor.lockState == CursorLockMode.Locked && !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !VoxelMenu.IsOpen &&
-        !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen && !WorldMap.IsOpen && !TitleScreen.IsOpen;
+    /// <summary>有面板占着输入（对话框 / 祈愿 / 大地图 / 背包 / 角色 / 菜单 / 开幕动画）或鼠标没锁时不响应 E 键和提示</summary>
+    static bool CanUseInput() => VoxelPanels.CanUseInput;
 
     /// <summary>玩家是不是站在跟前盯着它</summary>
     bool Focused(out float distance)
@@ -306,6 +304,10 @@ public class LootChest : MonoBehaviour
         VoxelHud.ShowLoot("开启 " + cfg.name, lines);
         VoxelChat.Announce("开启了" + cfg.name);
 
+        // 开箱：一声宝箱开启的"叮"（coin 组）+ 一层柔和的魔法光效音（heal 组）
+        VoxelAudio.PlaySfxAt("coin", transform.position + Vector3.up * 0.6f, 1f);
+        VoxelAudio.PlaySfxAt("heal", transform.position + Vector3.up * 0.8f, 0.6f, 1.05f);
+
         DimChest();
         StartCoroutine(PlayFx(NewFx(true, new Color32(0xff, 0xe2, 0x8a, 0xff), 1.7f, 0.8f),
                               NewFx(false, new Color32(0xff, 0xd0, 0x6a, 0xff), SlabHeight + 0.06f, 1.2f),
@@ -322,6 +324,7 @@ public class LootChest : MonoBehaviour
         _runeHome.Clear();
 
         VoxelChat.Announce("封印解除：" + Configs[(int)tier].name + " 可以打开了");
+        VoxelAudio.PlaySfxAt("teleport", transform.position + Vector3.up * 0.8f, 0.8f, 1.1f);
 
         StartCoroutine(PlayFx(NewFx(true, new Color32(0xc8, 0xa8, 0xff, 0xff), 1.5f, 0.8f),
                               NewFx(false, new Color32(0xb9, 0x8c, 0xff, 0xff), 0.09f, 1.2f),

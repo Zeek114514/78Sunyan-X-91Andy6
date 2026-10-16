@@ -35,6 +35,9 @@ public class VoxelCharacterSheet : MonoBehaviour
     /// <summary>出战角色每一下普攻的伤害（攻击力 × 普通攻击倍率）；没有角色系统就是 0</summary>
     public static float ActiveNormalAttackDamage => Current != null ? Current.NormalAttackDamage : 0f;
 
+    /// <summary>出战角色的养成状态（战斗里读冷却 / 能量 / 战技名要用）；没有角色系统时是 null</summary>
+    public static CharacterState ActiveState => Current;
+
     /// <summary>出战角色（没有角色系统、或者名册空的时候是 null）</summary>
     static CharacterState Current => Instance != null ? Instance._active : null;
 
@@ -128,6 +131,42 @@ public class VoxelCharacterSheet : MonoBehaviour
 
         public float CritRate   => VoxelCharacterData.BaseCritRate   + BonusOf(VoxelCharacterData.Stat.CritRate);
         public float CritDamage => VoxelCharacterData.BaseCritDamage + BonusOf(VoxelCharacterData.Stat.CritDamage);
+
+        // ---- 战斗中的运行时状态（冷却与能量不存档：跟原神一样是"这一场"的状态） ----
+
+        public float SkillCooldown;      // 元素战技剩余冷却（秒）
+        public float BurstCooldown;      // 元素爆发剩余冷却（秒）
+        public float Energy;             // 当前元素能量
+
+        public float MaxEnergy  => Info.SkillEnergy;
+        public bool  SkillReady => SkillCooldown <= 0f;
+        public bool  BurstReady => BurstCooldown <= 0f && Energy >= MaxEnergy;
+
+        /// <summary>每帧推进冷却与能量回复（普攻命中还会额外给能量，见 VoxelCombat）</summary>
+        public void TickBattle(float dt)
+        {
+            if (SkillCooldown > 0f) SkillCooldown = Mathf.Max(0f, SkillCooldown - dt);
+            if (BurstCooldown > 0f) BurstCooldown = Mathf.Max(0f, BurstCooldown - dt);
+            if (Energy < MaxEnergy) Energy = Mathf.Min(MaxEnergy, Energy + EnergyPerSecond * dt);
+        }
+
+        /// <summary>元素能量自然回复速度（每秒）</summary>
+        public const float EnergyPerSecond = 2.5f;
+
+        /// <summary>普攻命中给多少元素能量（原神那种"打出来的能量"）</summary>
+        public const float EnergyPerHit = 6f;
+
+        public void GainEnergy(float amount) => Energy = Mathf.Min(MaxEnergy, Energy + amount);
+
+        /// <summary>放了一次元素战技：进冷却</summary>
+        public void StartSkillCooldown() => SkillCooldown = Info.SkillCd;
+
+        /// <summary>放了一次元素爆发：能量清零 + 一点收招硬直（免得连按两次）</summary>
+        public void ConsumeBurst()
+        {
+            Energy = 0f;
+            BurstCooldown = 1.2f;
+        }
 
         public float DamageReduction => VoxelCharacterData.DamageReduction(Defense);
 
@@ -245,6 +284,14 @@ public class VoxelCharacterSheet : MonoBehaviour
         if (Instance == this) Instance = null;      // 停播时清掉静态状态
     }
 
+    void Update()
+    {
+        // 冷却与元素能量只在"游戏内"推进（面板开着 / 鼠标松开时算暂停）
+        if (!VoxelPanels.CanUseInput || _active == null) return;
+
+        _active.TickBattle(Time.deltaTime);
+    }
+
     /// <summary>某样东西持有多少（武器精炼按它算，所以得问物品栏）</summary>
     public int OwnedCount(string name) => _inventory != null && !string.IsNullOrEmpty(name)
                                         ? _inventory.MaterialCount(name) : 0;
@@ -333,10 +380,38 @@ public class VoxelCharacterSheet : MonoBehaviour
         }
     }
 
+    /// <summary>清掉角色养成的存档（等级 / 突破 / 天赋 / 武器 / 圣遗物 / 出战角色）——
+    /// 菜单里的"重置存档"会调它；清完回到 1 级空装状态</summary>
+    public void ClearAll()
+    {
+        foreach (var info in VoxelCharacterData.Characters)
+        {
+            string key = KeyPrefix + info.Id + ".";
+
+            PlayerPrefs.DeleteKey(key + "Lv");
+            PlayerPrefs.DeleteKey(key + "Phase");
+            PlayerPrefs.DeleteKey(key + "Weapon");
+            PlayerPrefs.DeleteKey(key + "WLv");
+
+            for (int i = 0; i < 3; i++) PlayerPrefs.DeleteKey(key + "T" + i);
+
+            for (int i = 0; i < VoxelCharacterData.Slots.Length; i++)
+            {
+                PlayerPrefs.DeleteKey(key + "A" + i + "Eq");
+                PlayerPrefs.DeleteKey(key + "A" + i + "Lv");
+            }
+        }
+
+        PlayerPrefs.DeleteKey(KeyActive);
+        PlayerPrefs.Save();
+
+        Load();         // 把内存里的那份也重置回初始（1 级、空手、圣遗物未装备）
+        Rebuild();
+    }
+
     /// <summary>把某个角色的养成状态写回存档（升级 / 突破 / 换装备之后调用）</summary>
     public void Save(CharacterState state)
-    {
-        if (state == null) return;
+    {        if (state == null) return;
 
         string key = KeyPrefix + state.Info.Id + ".";
         PlayerPrefs.SetInt(key + "Lv", state.Level);

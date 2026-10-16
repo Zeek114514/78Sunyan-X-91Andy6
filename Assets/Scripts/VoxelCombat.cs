@@ -1,11 +1,14 @@
 using UnityEngine;
 
 /// <summary>
-/// 玩家普攻（鼠标左键）：朝准星方向挥一下，命中 3 米出头、正前方约 80 度锥形里的野外怪就扣血 + 击退，
-/// 并给一个命中的准星反馈。打起来就是"一下一下敲"，连招 / 重击 / 元素技能留给后面的战斗系统。
+/// 玩家战斗：
+///   · 鼠标左键 —— 普通攻击：朝准星方向挥一下，命中 3 米出头、正前方约 80 度锥形里的野怪就扣血 + 击退；
+///   · 鼠标右键 —— 元素战技：脚下放一圈范围伤害，人物中心 4.5 米内的敌人全吃（进冷却，见角色的 SkillCd）；
+///   · F 键 —— 元素爆发：元素能量攒满了才能放，范围更大伤害更高，放完能量清零。
 ///
-/// 伤害不是写死的：接了角色养成之后 = 出战角色的攻击力 × 普通攻击天赋倍率，
-/// 再按角色的暴击率 / 暴击伤害掷一次暴击（暴击时准星反馈是金红色）。没接角色系统就用 Inspector 上的 damage。
+/// 三个伤害都走同一套公式：出战角色的攻击力 × 对应倍率（普攻 / 战技 / 爆发的天赋等级），
+/// 再按暴击率 / 暴击伤害掷一次暴击。普通攻击命中还会给元素能量（EnergyPerHit），
+/// 所以"打普攻攒能量 → 放爆发"是一个完整的循环。没接角色系统时用 Inspector 上的 damage 兜底。
 /// </summary>
 public class VoxelCombat : MonoBehaviour
 {
@@ -15,15 +18,21 @@ public class VoxelCombat : MonoBehaviour
     public float knockback   = 1.4f;    // 击退距离
     public float halfAngle   = 40f;     // 命中锥形的半角
 
+    const float SkillRadius = 4.5f;     // 元素战技的作用半径
+    const float BurstRadius = 7.0f;     // 元素爆发的作用半径
+    const float SkillCastGap = 0.35f;   // 放技能后短暂的出招停顿
+
     float _cooldown;
     float _hitFlash;
     bool  _hitCrit;                     // 这一下是不是暴击（决定准星反馈的颜色）
     Transform _camera;
+    Material _material;                  // 世界那套顶点色材质（放技能光效要用）
     GUIStyle _mark;
 
-    public void Init(Transform cameraTransform)
+    public void Init(Transform cameraTransform, Material material)
     {
         _camera = cameraTransform;
+        _material = material;
     }
 
     void Update()
@@ -33,12 +42,134 @@ public class VoxelCombat : MonoBehaviour
         if (_cooldown > 0f) _cooldown -= Time.deltaTime;
         if (_hitFlash > 0f) _hitFlash -= Time.deltaTime;
 
-        // 鼠标没锁（开始面板 / 对话框 / 地图 / 开幕动画开着）时不打；划面打开时 VoxelPlayer 也停了
+        // 鼠标没锁、或者有面板占着输入时不打（划面打开时 VoxelPlayer 也停了）
         if (Cursor.lockState != CursorLockMode.Locked) return;
-        if (VoxelChat.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen || VoxelInventory.IsOpen ||
-            VoxelCharacterScreen.IsOpen || TitleScreen.IsOpen || VoxelMenu.IsOpen) return;
+        if (VoxelPanels.InputBlocked) return;
 
         if (Input.GetMouseButtonDown(0) && _cooldown <= 0f) Attack();
+        if (Input.GetMouseButtonDown(1) && _cooldown <= 0f) CastSkill();
+        if (Input.GetKeyDown(KeyCode.F) && _cooldown <= 0f) CastBurst();
+    }
+
+    // ---------- 元素战技 / 元素爆发 ----------
+
+    /// <summary>元素战技（鼠标右键）：以人物为中心打一圈，进冷却</summary>
+    void CastSkill()
+    {
+        var state = VoxelCharacterSheet.ActiveState;
+        if (state == null) return;
+        if (!state.SkillReady) return;          // 还在冷却：什么都不做（HUD 上有冷却条）
+
+        state.StartSkillCooldown();
+        _cooldown = SkillCastGap;
+
+        int hits = AreaDamage(state.SkillDamage, SkillRadius, state.Info.SkillName);
+        PlayCastFx(state.Info.ElementColor, SkillRadius, 0.5f, 0.55f);
+        VoxelAudio.PlaySfxAt("teleport", transform.position + Vector3.up * 1f, 0.75f, 1.15f);
+
+        VoxelChat.Announce($"{state.Name} · {state.Info.SkillName}" + (hits > 0 ? $"（命中 {hits} 个）" : ""));
+    }
+
+    /// <summary>元素爆发（F 键）：能量攒满才能放，范围更大、伤害更高</summary>
+    void CastBurst()
+    {
+        var state = VoxelCharacterSheet.ActiveState;
+        if (state == null) return;
+
+        if (!state.BurstReady)
+        {
+            VoxelChat.Announce($"元素能量不足（{state.Energy:0} / {state.MaxEnergy:0}）—— 打普攻攒能量");
+            return;
+        }
+
+        state.ConsumeBurst();
+        _cooldown = SkillCastGap * 1.6f;
+
+        int hits = AreaDamage(state.BurstDamage, BurstRadius, state.Info.BurstName);
+        PlayCastFx(state.Info.ElementColor, BurstRadius, 1.1f, 0.9f);
+        VoxelAudio.PlaySfxAt("heal", transform.position + Vector3.up * 1.2f, 1f, 0.92f);
+
+        VoxelChat.Announce($"{state.Name} · {state.Info.BurstName}" + (hits > 0 ? $"（命中 {hits} 个）" : ""));
+    }
+
+    /// <summary>以人物为中心给半径内的怪结算一次伤害，返回打中几个（会掷暴击）</summary>
+    int AreaDamage(float amount, float radius, string skillName)
+    {
+        int hits = 0;
+        Vector3 center = transform.position;
+
+        for (int i = 0; i < VoxelMonster.All.Count; i++)
+        {
+            var m = VoxelMonster.All[i];
+            if (m == null || m.Dead) continue;
+
+            Vector3 to = m.transform.position - center;
+            to.y = 0f;
+            if (to.sqrMagnitude > radius * radius) continue;
+
+            bool crit = Random.value < VoxelCharacterSheet.ActiveCritRate;
+            float dealt = crit ? amount * (1f + VoxelCharacterSheet.ActiveCritDamage) : amount;
+
+            Vector3 dir = to.sqrMagnitude > 0.0001f ? to.normalized : transform.forward;
+            m.TakeDamage(dealt, crit ? skillName + "（暴击）" : skillName);
+            m.Knockback(dir, knockback * 1.6f);
+            hits++;
+        }
+
+        return hits;
+    }
+
+    /// <summary>技能光效：贴地一圈扩散的光环 + 一圈上冲的光柱（顶点色，和世界里那套一致）</summary>
+    void PlayCastFx(Color color, float radius, float columnHeight, float life)
+    {
+        if (_material == null) return;
+
+        var root = new GameObject("CastFx");
+        root.transform.position = transform.position;
+
+        var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        var column = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        Destroy(ring.GetComponent<Collider>());
+        Destroy(column.GetComponent<Collider>());
+
+        ring.transform.SetParent(root.transform, false);
+        ring.transform.localPosition = Vector3.up * 0.12f;
+        column.transform.SetParent(root.transform, false);
+        column.transform.localPosition = Vector3.up * columnHeight * 0.5f;
+
+        Paint(ring, color);
+        Paint(column, color * 1.15f);
+
+        StartCoroutine(AnimateFx(root.transform, ring.transform, column.transform, radius, columnHeight, life));
+    }
+
+    void Paint(GameObject go, Color color)
+    {
+        var mesh = go.GetComponent<MeshFilter>().mesh;
+        var colors = new Color[mesh.vertexCount];
+        for (int i = 0; i < colors.Length; i++) colors[i] = color.linear;
+        mesh.SetColors(colors);
+        go.GetComponent<MeshRenderer>().sharedMaterial = _material;
+    }
+
+    System.Collections.IEnumerator AnimateFx(Transform root, Transform ring, Transform column,
+                                             float radius, float columnHeight, float life)
+    {
+        for (float t = 0f; t < life; t += Time.deltaTime)
+        {
+            float k = Mathf.Clamp01(t / life);
+
+            float r = Mathf.Lerp(radius * 0.35f, radius, k);
+            ring.localScale = new Vector3(r, 0.06f, r);
+
+            float h = Mathf.Lerp(columnHeight * 0.4f, columnHeight * 1.5f, k);
+            column.localScale = new Vector3(Mathf.Lerp(radius * 0.5f, radius * 0.2f, k), h * 0.5f,
+                                            Mathf.Lerp(radius * 0.5f, radius * 0.2f, k));
+
+            yield return null;
+        }
+
+        if (root != null) Destroy(root.gameObject);
     }
 
     void Attack()
@@ -77,6 +208,15 @@ public class VoxelCombat : MonoBehaviour
 
         best.TakeDamage(amount, crit ? "你的暴击" : "你的攻击");
         best.Knockback(dir, knockback);
+
+        // 命中音效：打中的位置出声，暴击时音更高更亮一点，耳朵也能听出"这下疼"
+        VoxelAudio.PlaySfxAt("attack", best.transform.position + Vector3.up * 0.8f,
+                             crit ? 1f : 0.85f, crit ? 1.22f : Random.Range(0.94f, 1.06f));
+
+        // 命中攒元素能量（"打普攻攒能量 → 放爆发"的循环）
+        var state = VoxelCharacterSheet.ActiveState;
+        if (state != null) state.GainEnergy(VoxelCharacterSheet.CharacterState.EnergyPerHit);
+
         _hitFlash = 0.16f;
         _hitCrit = crit;
     }

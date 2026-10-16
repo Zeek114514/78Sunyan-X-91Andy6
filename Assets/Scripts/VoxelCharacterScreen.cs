@@ -62,9 +62,7 @@ public class VoxelCharacterScreen : MonoBehaviour
         if (!IsOpen)
         {
             // 只在"游戏内"才开：别的面板开着时鼠标是放开的，它们各自用 Esc 关
-            bool free = Cursor.lockState == CursorLockMode.Locked &&
-                        !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !WorldMap.IsOpen &&
-                        !VoxelInventory.IsOpen && !TitleScreen.IsOpen && !VoxelMenu.IsOpen;
+            bool free = VoxelPanels.CanUseInput;
 
             if (free && Input.GetKeyDown(KeyCode.C)) Open();
             return;
@@ -556,16 +554,18 @@ public class VoxelCharacterScreen : MonoBehaviour
         if (s == null) { Hint(x, y, w, "左边先选一个角色"); return y + 30f; }
 
         y = SkillCard(x, y, w, "元素战技", s.Info.SkillName, s.Info.SkillDesc,
-                      $"冷却 {s.Info.SkillCd:0.#} 秒", VoxelCharacterData.SkillMultiplier(s.Talents[1]), s.SkillDamage, s.Info.ElementColor);
+                      $"冷却 {s.Info.SkillCd:0.#} 秒　鼠标右键释放", VoxelCharacterData.SkillMultiplier(s.Talents[1]), s.SkillDamage, s.Info.ElementColor);
 
         y += 8f;
 
         y = SkillCard(x, y, w, "元素爆发", s.Info.BurstName, s.Info.BurstDesc,
-                      $"元素能量 {s.Info.SkillEnergy:0}", VoxelCharacterData.BurstMultiplier(s.Talents[2]), s.BurstDamage, s.Info.ElementColor);
+                      $"元素能量 {s.Info.SkillEnergy:0}　F 键释放", VoxelCharacterData.BurstMultiplier(s.Talents[2]), s.BurstDamage, s.Info.ElementColor);
 
         y += 12f;
         _small.normal.textColor = new Color(1f, 0.86f, 0.55f, 0.9f);
-        VoxelHud.LabelShadow(new Rect(x, y, w, 20f), "注意：技能目前只有资料与倍率，还没接进战斗（真正生效的是普通攻击）", _small);
+        VoxelHud.LabelShadow(new Rect(x, y, w, 20f),
+                             "战技与爆发都已接进战斗（范围伤害 + 暴击）；元素能量靠普通攻击命中积累（每下 +" +
+                             VoxelCharacterSheet.CharacterState.EnergyPerHit.ToString("0") + "）", _small);
 
         return y + 24f;
     }
@@ -800,6 +800,7 @@ public class VoxelCharacterScreen : MonoBehaviour
 
         if (!hot || Event.current.type != EventType.MouseUp || Event.current.button != 0) return false;
 
+        VoxelAudio.Click();
         Event.current.Use();
         return true;
     }

@@ -20,15 +20,16 @@ public class VoxelMenu : MonoBehaviour
     VoxelPlayer _player;
     VoxelStats _stats;
 
-    enum Page { Achievements = 0, Character, Regions, Controls }
+    enum Page { Achievements = 0, Character, Regions, Controls, Save }
     Page _page = Page.Achievements;
 
     int _hoverTab = -1;          // 鼠标停在哪个分页上（-1 = 没停）
     int _scroll;                 // 成就页的滚动（滚轮一格 40 像素）
+    bool _resetAsked;            // 重置存档的二次确认：第一次点只问一句
 
     GUIStyle _title, _tab, _tabOn, _head, _pageTitle, _body, _small, _gold;
 
-    static readonly string[] Tabs = { "成就", "角色", "地区", "操作" };
+    static readonly string[] Tabs = { "成就", "角色", "地区", "操作", "存档" };
 
     public void Init(VoxelInteraction inventory, VoxelPlayer player, VoxelStats stats)
     {
@@ -43,9 +44,7 @@ public class VoxelMenu : MonoBehaviour
         {
             // 只在"游戏内"（鼠标是锁着的）才开菜单：别的面板开着时鼠标是放开的，
             // 它们在各自的 Update 里用 Esc 关闭 —— 这里不抢，免得同一帧关一个又开一个
-            bool free = Cursor.lockState == CursorLockMode.Locked &&
-                        !VoxelChat.IsOpen && !VoxelGacha.IsOpen && !WorldMap.IsOpen &&
-                        !TitleScreen.IsOpen && !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen;
+            bool free = VoxelPanels.CanUseInput;
 
             // O 开菜单；Esc 也开（停在上次看的那一页）
             if (free && (Input.GetKeyDown(KeyCode.O) || Input.GetKeyDown(KeyCode.Escape))) Open();
@@ -176,8 +175,76 @@ public class VoxelMenu : MonoBehaviour
             case Page.Achievements: DrawAchievements(content); break;
             case Page.Character:    DrawCharacter(content); break;
             case Page.Regions:      DrawRegions(content); break;
-            default:                DrawControls(content); break;
+            case Page.Controls:     DrawControls(content); break;
+            default:                DrawSave(content); break;
         }
+    }
+
+    // ---------- 存档页 ----------
+
+    /// <summary>存档概览 + 重置存档（两步确认：第一次点只问一句，再点一次才真清）</summary>
+    void DrawSave(Rect content)
+    {
+        float x = content.x, w = content.width;
+        float y = content.y + 48f;
+
+        VoxelHud.LabelShadow(new Rect(x, y, w, 26f), "存档概览", _gold);
+        y += 32f;
+
+        var active = VoxelCharacterSheet.Instance != null ? VoxelCharacterSheet.Instance.Active : null;
+        var stats = _stats;
+
+        VoxelHud.LabelShadow(new Rect(x + 14f, y, w - 20f, 22f),
+                             $"成就　{Achievements.UnlockedCount} / {Achievements.Count}", _body);
+        y += 24f;
+        VoxelHud.LabelShadow(new Rect(x + 14f, y, w - 20f, 22f),
+                             active != null ? $"出战角色　{active.Name}　Lv.{active.Level}　突破 {active.Phase} 阶" : "出战角色　—", _body);
+        y += 24f;
+        VoxelHud.LabelShadow(new Rect(x + 14f, y, w - 20f, 22f),
+                             $"世界等级　{VoxelWorldLevel.Level}（野怪强度 ×{VoxelWorldLevel.Scale:0.00}）", _body);
+        y += 24f;
+        if (stats != null)
+        {
+            VoxelHud.LabelShadow(new Rect(x + 14f, y, w - 20f, 22f),
+                                 $"生命 {stats.Health:0} / {stats.MaxHealth:0}　饱食度 {stats.Hunger:0} / 100", _body);
+            y += 24f;
+        }
+
+        y += 16f;
+        VoxelHud.LabelShadow(new Rect(x, y, w, 22f), "清掉的东西：成就解锁、祈愿保底与抽卡历史、全部角色养成", _small);
+        y += 24f;
+        VoxelHud.LabelShadow(new Rect(x, y, w, 22f), "物品栏里的东西（原石 / 纠缠之缘 / 素材 / 武器）不在存档里，不受影响", _small);
+        y += 30f;
+
+        // 重置按钮（两步确认）
+        var button = new Rect(x, y, 320f, 40f);
+        bool hot = button.Contains(Event.current.mousePosition);
+
+        VoxelHud.FillRect(button, hot ? new Color(0.75f, 0.22f, 0.22f, 0.55f) : new Color(0.55f, 0.16f, 0.16f, 0.35f));
+        VoxelHud.FillRect(new Rect(button.x, button.y, 3f, button.height), new Color(0.92f, 0.4f, 0.35f, 0.95f));
+
+        _body.normal.textColor = hot ? Color.white : new Color(1f, 0.85f, 0.82f);
+        VoxelHud.LabelShadow(button, _resetAsked ? "再点一次确认重置" : "重置存档", _head);
+
+        y += 50f;
+        if (_resetAsked)
+        {
+            _small.normal.textColor = new Color(1f, 0.72f, 0.62f);
+            VoxelHud.LabelShadow(new Rect(x, y, w, 22f), "⚠ 这一步不可撤销（点别处取消）", _small);
+        }
+
+        if (!hot || Event.current.type != EventType.MouseUp || Event.current.button != 0) return;
+
+        Event.current.Use();
+
+        if (!_resetAsked) { _resetAsked = true; return; }      // 第一次点：先问一句
+
+        Achievements.ClearAll();
+        VoxelGacha.ClearProgress();
+        if (VoxelCharacterSheet.Instance != null) VoxelCharacterSheet.Instance.ClearAll();
+
+        _resetAsked = false;
+        VoxelChat.Announce("存档已重置：成就 / 祈愿保底 / 角色养成 都回到初始状态");
     }
 
     // ---------- 成就页 ----------
@@ -359,7 +426,9 @@ public class VoxelMenu : MonoBehaviour
         {
             "WASD          移动            Shift  疾跑            空格  跳跃",
             "Ctrl          下降（飞行时）",
-            "鼠标左键      攻击            鼠标右键 / 数字键 / 滚轮  切换手持物",
+            "鼠标左键      普通攻击            鼠标右键  元素战技（有冷却）",
+            "F             元素爆发（要攒满元素能量）",
+            "鼠标右键 / 数字键 / 滚轮  切换手持物",
             "E             开宝箱 / 交互     Q      丢掉手上的道具",
             "T             对话框（聊天 / 指令：/fly /eat /status）",
             "O             菜单（成就 / 角色 / 地区 / 操作），再按一次关闭",
@@ -400,6 +469,7 @@ public class VoxelMenu : MonoBehaviour
             if (!TabRect(side, i).Contains(m)) continue;
             _page = (Page)i;
             _scroll = 0;
+            VoxelAudio.Click();
             e.Use();
             return;
         }

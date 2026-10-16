@@ -33,6 +33,35 @@ public class VoxelMonster : MonoBehaviour
     bool  _isSlime;
     float _bodyScale = 1f;
 
+    // ---------- 世界难度（跟着出战角色等级走，见 VoxelWorldLevel） ----------
+
+    /// <summary>当前生效的难度倍率：新刷出来的怪按它放大血量与攻击力</summary>
+    static float _difficulty = 1f;
+
+    /// <summary>按世界等级重算场上所有野怪的血量与攻击力（当前血量按比例保留）。
+    /// 由 VoxelWorldLevel 在世界等级变化时调用 —— 所以"人变强、怪也变强"，不会一路碾压</summary>
+    public static void ApplyDifficulty(float scale)
+    {
+        scale = Mathf.Clamp(scale, 0.5f, 8f);
+        if (Mathf.Approximately(scale, _difficulty)) return;
+
+        float ratio = scale / _difficulty;
+        _difficulty = scale;
+
+        for (int i = 0; i < All.Count; i++)
+        {
+            var m = All[i];
+            if (m == null) continue;
+
+            m._maxHealth *= ratio;
+            m._attackDamage *= ratio;
+            m._health = Mathf.Min(m._maxHealth, m._health * ratio);
+        }
+    }
+
+    /// <summary>现在的世界难度倍率（自检 / 界面显示用）</summary>
+    public static float Difficulty => _difficulty;
+
     float _health;
     State _state;
     Vector3 _home;
@@ -77,6 +106,10 @@ public class VoxelMonster : MonoBehaviour
         _home = transform.position;
 
         ApplyKind();
+
+        // 世界难度：怪的基准数值按当前世界等级放大（血量与攻击力一起），所以养成的收益是"打得动"，而不是"无脑碾压"
+        _maxHealth   *= _difficulty;
+        _attackDamage *= _difficulty;
 
         _health = _maxHealth;
 

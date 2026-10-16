@@ -68,8 +68,7 @@ public class VoxelHud : MonoBehaviour
         if (_interaction == null) return;
         EnsureStyles();
 
-        if (Cursor.lockState == CursorLockMode.Locked && !TitleScreen.IsOpen && !VoxelMenu.IsOpen &&
-            !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen)
+        if (Cursor.lockState == CursorLockMode.Locked && !VoxelPanels.ModalOpen)
         {
             DrawRegionBanner();          // 正上方那条"进入新地区"的横幅，压在准星之上
             DrawAchievement();           // 首次进 Andy的港门 的成就卡片
@@ -80,8 +79,7 @@ public class VoxelHud : MonoBehaviour
             DrawPurse();
             DrawLootToast();
         }
-        else if (!VoxelChat.IsOpen && !VoxelGacha.IsOpen && !WorldMap.IsOpen && !TitleScreen.IsOpen &&
-                 !VoxelMenu.IsOpen && !VoxelInventory.IsOpen && !VoxelCharacterScreen.IsOpen)   // 这些面板打开时把屏幕让出去
+        else if (!VoxelPanels.InputBlocked)   // 有面板占着输入时把屏幕让出去
         {
             DrawStartPanel();
         }
@@ -345,6 +343,50 @@ public class VoxelHud : MonoBehaviour
                     "饱食 " + _stats.Hunger.ToString("F0"), _number);
         SegmentedBar(cx + 5f, y, _stats.Hunger,
                      starving ? new Color(0.72f, 0.30f, 0.06f) : new Color(0.93f, 0.62f, 0.12f));
+
+        DrawSkills();
+    }
+
+    /// <summary>
+    /// 技能条（屏幕右下、物品栏正上方）：左边元素战技、右边元素爆发。
+    /// 战技显示技能名与剩余冷却（冷却时压一条从右往左回的进度），爆发显示元素能量；攒满会变金。
+    /// 放右下角是照着原神来的，也不会和左下角那两行操作提示、聊天日志打架。
+    /// </summary>
+    void DrawSkills()
+    {
+        var state = VoxelCharacterSheet.ActiveState;
+        if (state == null) return;
+
+        const float w = 232f, h = 30f, gap = 12f;
+
+        float right = Screen.width - 24f;
+        float top   = Screen.height - 124f;
+
+        var skill = new Rect(right - w * 2f - gap, top, w, h);
+        var burst = new Rect(right - w, top, w, h);
+        Color tint = state.Info.ElementColor;
+
+        DrawSkillChip(skill, "右键 · " + state.Info.SkillName,
+                      state.SkillReady ? "就绪" : state.SkillCooldown.ToString("0.0") + " 秒",
+                      state.SkillReady ? 1f : 1f - Mathf.Clamp01(state.SkillCooldown / Mathf.Max(0.01f, state.Info.SkillCd)),
+                      tint);
+
+        DrawSkillChip(burst, "F · " + state.Info.BurstName,
+                      state.BurstReady ? "可以放了" : state.Energy.ToString("0") + " / " + state.MaxEnergy.ToString("0"),
+                      state.MaxEnergy > 0f ? Mathf.Clamp01(state.Energy / state.MaxEnergy) : 1f,
+                      state.BurstReady ? new Color(1f, 0.85f, 0.42f) : tint);
+    }
+
+    /// <summary>一个技能小条：底色 + 一条从左往右的进度（战技=冷却就绪度，爆发=能量）</summary>
+    void DrawSkillChip(Rect r, string label, string value, float fill, Color tint)
+    {
+        FillRect(r, new Color(0f, 0f, 0f, 0.5f));
+        FillRect(new Rect(r.x + 2f, r.y + 2f, (r.width - 4f) * Mathf.Clamp01(fill), r.height - 4f),
+                 new Color(tint.r * 0.55f, tint.g * 0.55f, tint.b * 0.55f, 0.75f));
+        FillRect(new Rect(r.x, r.y, 3f, r.height), new Color(tint.r, tint.g, tint.b, 0.95f));
+
+        LabelShadow(new Rect(r.x + 8f, r.y + 2f, r.width - 16f, 15f), label, _purse);
+        LabelShadow(new Rect(r.x + 8f, r.y + 15f, r.width - 16f, 15f), value, _number);
     }
 
     /// <summary>10 格分段条，最后一格按数值比例部分填充。
@@ -381,8 +423,8 @@ public class VoxelHud : MonoBehaviour
         }
         else
         {
-            line1 = "WASD 移动    Shift 疾跑    空格 跳跃    左键 攻击    Q 丢掉手上的道具";
-            line2 = "E 开箱    T 对话    P 祈愿    B 背包    C 角色    M 地图    滚轮 换道具    Esc 鼠标";
+            line1 = "WASD 移动    Shift 疾跑    空格 跳跃    左键 普攻    右键 战技    F 元素爆发";
+            line2 = "E 开箱    T 对话    P 祈愿    B 背包    C 角色    M 地图    Q 丢道具    Esc 鼠标";
         }
 
         GUI.Label(new Rect(box.x + 12f, box.y + 8f,  box.width, 24f), line1, _body);

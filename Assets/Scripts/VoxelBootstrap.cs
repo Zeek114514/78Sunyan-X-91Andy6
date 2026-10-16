@@ -84,13 +84,19 @@ public static class VoxelBootstrap
 
         playerGo.AddComponent<VoxelCharacterScreen>().Init(sheet);
 
+        // ---------- 5.8 音频（BGM 循环 + 音效；音效文件在 Assets/Resources/Audio/<组名>/）----------
+        playerGo.AddComponent<VoxelAudio>().Init(cam.transform);
+
+        // ---------- 5.9 世界等级（出战角色每升 10 级提一档，野怪跟着变强）----------
+        playerGo.AddComponent<VoxelWorldLevel>();
+
         // ---------- 6. 世界地图 / 小地图 ----------
         // ★ 地图创建放到 8.5（所有生成器之后）再调用 —— 原因见那里的注释：
         //   底图是一次性烘出来的，村落 / 港城的色块要是晚于烘焙登记，地图上就一个色块都没有
 
         // ---------- 6.5 玩家普攻（鼠标左键，用来打野外怪）----------
         var combat = playerGo.AddComponent<VoxelCombat>();
-        combat.Init(cam.transform);
+        combat.Init(cam.transform, world.Material);
 
         // ---------- 6. 对话框（必须在 VoxelStats 之后添加，Init 里会去找它）----------
         playerGo.AddComponent<VoxelChat>().Init(player);

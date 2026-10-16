@@ -129,6 +129,7 @@ public class VoxelGem : MonoBehaviour
                 if (_kind == Kind.Fate) _inventory.AddFate(1);
                 else                    _inventory.AddPrimogem(1);
 
+                VoxelAudio.PlaySfx("coin", 0.9f, Random.Range(0.98f, 1.08f));   // 捡东西的清脆声
                 Destroy(gameObject);
             }
         }
