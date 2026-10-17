@@ -123,6 +123,12 @@ public static class VoxelBootstrap
         var spawnerGo = new GameObject("MonsterSpawner");
         spawnerGo.AddComponent<MonsterSpawner>().Init(world, playerGo.transform, interaction);
 
+        // ---------- 7.55 野生动物：野兔 / 鹿 / 野猪 / 岩羊 / 白鹭 / 狐狸（生态层，能猎，掉兽肉）----------
+        // 必须排在 MonsterSpawner 之后：它要避开丘丘人营地；宝箱 / 解密排在它后面都无所谓，
+        // 因为它不登记任何占位（不占别人的点，自己躲着别人走）
+        var animalGo = new GameObject("AnimalSpawner");
+        animalGo.AddComponent<AnimalSpawner>().Init(world, playerGo.transform, interaction);
+
         // ---------- 7.6 战利品宝箱：5 个品质散落在世界各处（不进大地图标记），部分要清掉守卫才能开 ----------
         // 必须在 MonsterSpawner 之后：营地位置要先定下来，宝箱才知道该避开哪儿
         var chestGo = new GameObject("LootChestSpawner");
@@ -166,7 +172,7 @@ public static class VoxelBootstrap
         titleGo.AddComponent<TitleScreen>().Init(cam, player, combat, interaction);
 
         Debug.Log("[VoxelDemo] 开放世界生成完毕。WASD 移动 / 空格 跳跃 / 左键 攻击 / Q 丢道具 / E 开宝箱，" +
-                  "T 对话框，P 祈愿，B 背包，C 角色养成，M 世界地图，/fly 飞行，/eat 恢复饱食度。");
+                  "T 对话框，P 祈愿，B 背包，C 角色养成，M 世界地图，R 吃兽肉，/fly 飞行，/eat 恢复饱食度。");
     }
 
     /// <summary>按数据在出生点附近生成一个 NPC；落点在水边就往旁边挪，找块干地站。

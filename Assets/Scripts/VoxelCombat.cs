@@ -2,7 +2,8 @@ using UnityEngine;
 
 /// <summary>
 /// 玩家战斗：
-///   · 鼠标左键 —— 普通攻击：朝准星方向挥一下，命中 3 米出头、正前方约 80 度锥形里的野怪就扣血 + 击退；
+///   · 鼠标左键 —— 普通攻击：朝准星方向挥一下，命中 3 米出头、正前方约 80 度锥形里的目标就扣血 + 击退
+///     （目标既可以是野怪，也可以是野生动物 —— 野外的小动物能猎，见 VoxelAnimal）；
 ///   · 鼠标右键 —— 元素战技：脚下放一圈范围伤害，人物中心 4.5 米内的敌人全吃（进冷却，见角色的 SkillCd）；
 ///   · F 键 —— 元素爆发：元素能量攒满了才能放，范围更大伤害更高，放完能量清零。
 ///
@@ -116,6 +117,25 @@ public class VoxelCombat : MonoBehaviour
             hits++;
         }
 
+        // 野生动物也吃范围伤害：顺手放个战技，脚边刚好有只兔子也会被吓跑 / 打中
+        for (int i = 0; i < VoxelAnimal.All.Count; i++)
+        {
+            var a = VoxelAnimal.All[i];
+            if (a == null || a.Dead) continue;
+
+            Vector3 to = a.transform.position - center;
+            to.y = 0f;
+            if (to.sqrMagnitude > radius * radius) continue;
+
+            bool crit = Random.value < VoxelCharacterSheet.ActiveCritRate;
+            float dealt = crit ? amount * (1f + VoxelCharacterSheet.ActiveCritDamage) : amount;
+
+            Vector3 dir = to.sqrMagnitude > 0.0001f ? to.normalized : transform.forward;
+            a.TakeDamage(dealt, crit ? skillName + "（暴击）" : skillName);
+            a.Knockback(dir, knockback * 1.6f);
+            hits++;
+        }
+
         return hits;
     }
 
@@ -179,38 +199,53 @@ public class VoxelCombat : MonoBehaviour
         Vector3 origin  = _camera.position;
         Vector3 forward = _camera.forward;
 
-        VoxelMonster best = null;
+        // 目标可以是野怪，也可以是野生动物（能猎）：同一套锥形判定，挑"最正前、最近"的那一只
+        MonoBehaviour target = null;
         float bestScore = float.MaxValue;
+        float hitHeight = 0.8f;
 
         for (int i = 0; i < VoxelMonster.All.Count; i++)
         {
             var m = VoxelMonster.All[i];
             if (m == null || m.Dead) continue;
-
-            Vector3 to = m.transform.position + Vector3.up * m.HitHeight - origin;
-            float dist = to.magnitude;
-            if (dist > range) continue;                                   // 够不着
-            if (Vector3.Angle(forward, to) > halfAngle) continue;          // 不在正前方锥形里
-
-            float score = dist - Vector3.Dot(forward, to.normalized) * 0.8f;   // 越正前、越近越优先
-            if (score < bestScore) { bestScore = score; best = m; }
+            if (!InAttackCone(m.transform.position, m.HitHeight, origin, forward, out float score)) continue;
+            if (score < bestScore) { bestScore = score; target = m; hitHeight = m.HitHeight; }
         }
 
-        if (best == null) return;
+        for (int i = 0; i < VoxelAnimal.All.Count; i++)
+        {
+            var a = VoxelAnimal.All[i];
+            if (a == null || a.Dead) continue;
+            if (!InAttackCone(a.transform.position, a.HitHeight, origin, forward, out float score)) continue;
+            if (score < bestScore) { bestScore = score; target = a; hitHeight = a.HitHeight; }
+        }
 
-        Vector3 dir = best.transform.position - transform.position;
+        if (target == null) return;
+
+        Vector3 dir = target.transform.position - transform.position;
         dir.y = 0f;
         if (dir.sqrMagnitude < 0.0001f) dir = forward;
         dir.Normalize();
 
         bool crit;
         float amount = HitDamage(out crit);
+        string cause = crit ? "你的暴击" : "你的攻击";
 
-        best.TakeDamage(amount, crit ? "你的暴击" : "你的攻击");
-        best.Knockback(dir, knockback);
+        var monster = target as VoxelMonster;
+        if (monster != null)
+        {
+            monster.TakeDamage(amount, cause);
+            monster.Knockback(dir, knockback);
+        }
+        else
+        {
+            var animal = (VoxelAnimal)target;
+            animal.TakeDamage(amount, cause);
+            animal.Knockback(dir, knockback);
+        }
 
         // 命中音效：打中的位置出声，暴击时音更高更亮一点，耳朵也能听出"这下疼"
-        VoxelAudio.PlaySfxAt("attack", best.transform.position + Vector3.up * 0.8f,
+        VoxelAudio.PlaySfxAt("attack", target.transform.position + Vector3.up * hitHeight,
                              crit ? 1f : 0.85f, crit ? 1.22f : Random.Range(0.94f, 1.06f));
 
         // 命中攒元素能量（"打普攻攒能量 → 放爆发"的循环）
@@ -219,6 +254,20 @@ public class VoxelCombat : MonoBehaviour
 
         _hitFlash = 0.16f;
         _hitCrit = crit;
+    }
+
+    /// <summary>这一点在不在"正前方的攻击锥形"里；在的话给出优先级分数（越正前、越近越优先）</summary>
+    bool InAttackCone(Vector3 position, float hitHeight, Vector3 origin, Vector3 forward, out float score)
+    {
+        score = float.MaxValue;
+
+        Vector3 to = position + Vector3.up * hitHeight - origin;
+        float dist = to.magnitude;
+        if (dist > range) return false;                                   // 够不着
+        if (Vector3.Angle(forward, to) > halfAngle) return false;          // 不在正前方锥形里
+
+        score = dist - Vector3.Dot(forward, to.normalized) * 0.8f;
+        return true;
     }
 
     /// <summary>这一下打多少：出战角色的攻击力 × 普通攻击倍率，再按暴击率掷一次暴击。

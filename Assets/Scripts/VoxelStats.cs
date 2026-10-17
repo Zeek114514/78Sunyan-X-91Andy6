@@ -4,6 +4,7 @@ using UnityEngine;
 /// 生命 / 饱食度系统（数值与规则都在这；显示在 VoxelHud，指令在 VoxelChat）：
 /// 饱食度低于 20% 无法奔跑；低于 50% 生命不再自动回复；
 /// 摔落超过 4 格扣血，归零后在出生点复活并重置数值。
+/// 补充饱食度的正经途径是**吃狩猎来的兽肉**（按 R，见 EatFood），/eat 那条指令只是调试用的。
 ///
 /// 生命上限不是固定的 100 —— 它由出战角色的养成数值决定（见 VoxelCharacterSheet）：
 /// 1 级、什么都没装的孙琰正好是 100，所以和没有养成系统时一模一样；
@@ -77,6 +78,25 @@ public class VoxelStats : MonoBehaviour
     {
         SetHunger(Max);
         VoxelChat.Announce("吃饱了，饱食度已恢复到 100");
+    }
+
+    /// <summary>
+    /// 吃一份食物：回 amount 点饱食度（狩猎来的兽肉走这里，见 VoxelInteraction.EatMeat）。
+    /// 返回"到底吃下去没有" —— 已经吃饱就是 false，调用方据此**不**扣掉那块肉。
+    /// </summary>
+    public bool EatFood(float amount, string name)
+    {
+        if (amount <= 0f) return false;
+
+        if (Hunger >= Max - 0.01f)
+        {
+            VoxelChat.Announce("还饱着，吃不下" + name + "（饱食度 " + Hunger.ToString("F0") + "/100）");
+            return false;
+        }
+
+        SetHunger(Hunger + amount);
+        VoxelChat.Announce("吃了一块" + name + "，饱食度 " + Hunger.ToString("F0") + "/100");
+        return true;
     }
 
     /// <summary>七天神像的祝福：生命与体力（饱食度）一起回满。

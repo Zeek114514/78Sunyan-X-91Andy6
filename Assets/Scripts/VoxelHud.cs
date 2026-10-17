@@ -424,7 +424,7 @@ public class VoxelHud : MonoBehaviour
         else
         {
             line1 = "WASD 移动    Shift 疾跑    空格 跳跃    左键 普攻    右键 战技    F 元素爆发";
-            line2 = "E 开箱    T 对话    P 祈愿    B 背包    C 角色    M 地图    Q 丢道具    Esc 鼠标";
+            line2 = "E 开箱    T 对话    P 祈愿    B 背包    C 角色    M 地图    R 吃兽肉    Esc 菜单";
         }
 
         GUI.Label(new Rect(box.x + 12f, box.y + 8f,  box.width, 24f), line1, _body);

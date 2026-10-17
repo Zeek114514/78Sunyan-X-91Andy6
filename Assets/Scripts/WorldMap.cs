@@ -65,7 +65,18 @@ public class WorldMap : MonoBehaviour
                   $"色块 {MondstadtTown.Blobs.Count} 个，线 {MondstadtTown.MapLines.Count} 条。");
     }
 
-    void OnDisable() => IsOpen = false;
+    // ★ 这里必须把鼠标锁回去再清 IsOpen：如果地图是被"停用／换场景"这种方式关掉的（不走 Toggle），
+    //   只清 IsOpen 会把鼠标留在松开状态 —— 玩家不能动、不能交互，HUD 也不画（它要求鼠标锁定），
+    //   看起来就是卡死。测试：地图开着时切场景／禁用对象。
+    void OnDisable()
+    {
+        if (IsOpen)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+        IsOpen = false;
+    }
 
     void Update()
     {
@@ -76,7 +87,12 @@ public class WorldMap : MonoBehaviour
             else _fade = Mathf.Max(0f, _fade - Time.unscaledDeltaTime / FadeOut);
         }
 
-        if (_map == null || VoxelPanels.InputBlocked) return;
+        if (_map == null) return;
+
+        // ★ 别的面板占着输入时让位，但**不能把"自己开着"也算进去**：
+        //   大地图本身就在 VoxelPanels.ModalOpen 里，一旦写成 InputBlocked，
+        //   地图一打开这个 Update 就早退 —— 按 M / Esc 都到不了下面的处理，人直接卡死（这个坑踩过一次）。
+        if (!IsOpen && VoxelPanels.InputBlocked) return;
 
         if (Input.GetKeyDown(KeyCode.M)) Toggle();
         else if (IsOpen && Input.GetKeyDown(KeyCode.Escape)) Toggle();
@@ -156,7 +172,9 @@ public class WorldMap : MonoBehaviour
     void OnGUI()
     {
         if (_map == null) return;
-        if (VoxelPanels.ModalOpen) return;                        // 全屏面板（开幕动画 / 菜单 / 背包 / 角色…）开着时小地图也收起来
+        // 别的全屏面板（开幕动画 / 菜单 / 背包 / 角色 / 祈愿）开着时小地图也收起来；
+        // 但"自己开着"要照画 —— 判断里必须把它排除掉
+        if (!IsOpen && VoxelPanels.ModalOpen) return;
         if (Event.current.type != EventType.Repaint) return;      // 每帧只画一次，别在事件阶段重复画
         EnsureStyles();
 

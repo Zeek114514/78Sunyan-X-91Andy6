@@ -3,13 +3,14 @@ using UnityEngine;
 
 /// <summary>
 /// 世界上掉落的道具：抛出后落到落点，待机时旋转浮动，走近能捡回物品栏。
-/// 原石是代码拼的小八面体；纠缠之缘用 Resources 里的 3D 模型（模型缺失就退化成八面体）。
-/// 孙琰只认原石（那是他的饭），纠缠之缘他不捡。
+/// 原石是代码拼的小八面体；纠缠之缘用 Resources 里的 3D 模型（模型缺失就退化成八面体）；
+/// 兽肉（野生动物掉的）是代码拼的一根带肉骨头，捡起来进"素材"，按 R 吃掉回饱食度。
+/// 孙琰只认原石（那是他的饭），纠缠之缘和兽肉他都不捡。
 /// </summary>
 public class VoxelGem : MonoBehaviour
 {
     /// <summary>掉落物种类</summary>
-    public enum Kind { Primogem, Fate }
+    public enum Kind { Primogem, Fate, Meat }
 
     /// <summary>纠缠之缘的 3D 模型（Resources 下，不带扩展名）</summary>
     const string FateModelPath = "IntertwinedFate";
@@ -21,6 +22,7 @@ public class VoxelGem : MonoBehaviour
     const float SettleTime  = 0.4f;    // 从抛出点到落点的时间
     const float PickupRadius = 1.3f;   // 玩家拾取半径
     const float HoverHeight  = 0.45f;  // 原石待机时离地的高度
+    const float MeatHover    = 0.32f;  // 兽肉离地更低一点（一块肉飘在半空很怪）
 
     Kind _kind = Kind.Primogem;
     float _hover = HoverHeight;
@@ -41,7 +43,8 @@ public class VoxelGem : MonoBehaviour
     public static VoxelGem Spawn(OpenWorld world, Transform player, VoxelInteraction inventory,
                                  Vector3 from, Kind kind = Kind.Primogem)
     {
-        var go = new GameObject(kind == Kind.Fate ? "IntertwinedFate" : "Primogem");
+        string goName = kind == Kind.Fate ? "IntertwinedFate" : (kind == Kind.Meat ? "RawMeat" : "Primogem");
+        var go = new GameObject(goName);
         var gem = go.AddComponent<VoxelGem>();
         gem.Init(world, player, inventory, from, kind);
         return gem;
@@ -50,7 +53,13 @@ public class VoxelGem : MonoBehaviour
     void Init(OpenWorld world, Transform player, VoxelInteraction inventory, Vector3 from, Kind kind)
     {
         _kind = kind;
-        _hover = kind == Kind.Fate ? FateHover : HoverHeight;
+
+        switch (kind)
+        {
+            case Kind.Fate: _hover = FateHover; break;
+            case Kind.Meat: _hover = MeatHover; break;
+            default:        _hover = HoverHeight; break;
+        }
 
         _world = world;
         _player = player;
@@ -110,24 +119,25 @@ public class VoxelGem : MonoBehaviour
             Vector3 p = Vector3.Lerp(_startPos, _restPos, t);
             p.y += Mathf.Sin(t * Mathf.PI) * 0.8f;
             transform.position = p;
-            transform.Rotate(0f, 400f * Time.deltaTime, 0f, Space.Self);
+            transform.Rotate(0f, Spin * 4.5f * Time.deltaTime, 0f, Space.Self);
             return;
         }
 
         // 待机：贴着地表悬浮 + 自转（地形起伏会跟着升降）
         _restPos.y = _world.SurfaceY(_restPos.x, _restPos.z) + _hover;
         transform.position = _restPos + Vector3.up * (Mathf.Sin(_bobPhase + _age * 2.4f) * 0.08f);
-        transform.Rotate(0f, 90f * Time.deltaTime, 0f, Space.Self);
+        transform.Rotate(0f, Spin * Time.deltaTime, 0f, Space.Self);
 
-        // 玩家走近 → 捡回物品栏（原石进原石格，纠缠之缘进纠缠之缘格）
+        // 玩家走近 → 捡回物品栏（原石进原石格，纠缠之缘进纠缠之缘格，兽肉进素材）
         if (Settled && _player != null && _inventory != null)
         {
             Vector3 to = _player.position - transform.position;
             to.y = 0f;
             if (to.sqrMagnitude < PickupRadius * PickupRadius)
             {
-                if (_kind == Kind.Fate) _inventory.AddFate(1);
-                else                    _inventory.AddPrimogem(1);
+                if (_kind == Kind.Fate)      _inventory.AddFate(1);
+                else if (_kind == Kind.Meat) _inventory.AddMaterial(VoxelInteraction.MeatName, 1);
+                else                         _inventory.AddPrimogem(1);
 
                 VoxelAudio.PlaySfx("coin", 0.9f, Random.Range(0.98f, 1.08f));   // 捡东西的清脆声
                 Destroy(gameObject);
@@ -135,9 +145,12 @@ public class VoxelGem : MonoBehaviour
         }
     }
 
+    /// <summary>自转速度（度 / 秒）：兽肉转慢点，它是一块肉不是一颗宝石</summary>
+    float Spin => _kind == Kind.Meat ? 50f : 90f;
+
     // ---------- 外形 ----------
 
-    /// <summary>原石 = 代码拼的八面体（用世界的顶点色材质）；纠缠之缘 = Resources 里的 3D 模型</summary>
+    /// <summary>原石 = 代码拼的八面体；兽肉 = 代码拼的一根带肉骨头；纠缠之缘 = Resources 里的 3D 模型</summary>
     void BuildVisual(Material material)
     {
         if (_kind == Kind.Fate && BuildModelVisual()) return;
@@ -145,7 +158,7 @@ public class VoxelGem : MonoBehaviour
         var filter = gameObject.AddComponent<MeshFilter>();
         var renderer = gameObject.AddComponent<MeshRenderer>();
         renderer.sharedMaterial = material;
-        filter.sharedMesh = BuildGemMesh();
+        filter.sharedMesh = _kind == Kind.Meat ? BuildMeatMesh() : BuildGemMesh();
 
         // 没有碰撞体：谁都能走进去捡
     }
@@ -210,6 +223,30 @@ public class VoxelGem : MonoBehaviour
             mat.SetFloat("_Smoothness", 0.45f);
             r.sharedMaterial = mat;
         }
+    }
+
+    /// <summary>兽肉：一根横穿的骨头 + 压在骨头上的一大一小两团肉（代码拼，和原石同一套做法）</summary>
+    static Mesh BuildMeatMesh()
+    {
+        var verts = new List<Vector3>();
+        var cols  = new List<Color>();
+        var tris  = new List<int>();
+
+        var meat      = new Color32(0xb5, 0x4a, 0x37, 255);   // 红肉
+        var meatLight = new Color32(0xd8, 0x7a, 0x54, 255);   // 受光那一块
+        var bone      = new Color32(0xf0, 0xe8, 0xd2, 255);
+
+        // 骨头：横着穿过肉的一根 + 两端的小圆头
+        LowPoly.Box(verts, cols, tris, Vector3.zero, new Vector3(0.055f, 0.055f, 0.40f),
+                    Quaternion.identity, bone, bone);
+        LowPoly.Sphere(verts, cols, tris, new Vector3(0f, 0f,  0.21f), 0.055f, bone, 6);
+        LowPoly.Sphere(verts, cols, tris, new Vector3(0f, 0f, -0.21f), 0.055f, bone, 6);
+
+        // 肉：两团略微不规则（jitter 让它不像两个标准球）
+        LowPoly.Sphere(verts, cols, tris, new Vector3(0f, 0.055f,  0.02f), 0.155f, meat,      9, 0.90f, 0.10f, 3f);
+        LowPoly.Sphere(verts, cols, tris, new Vector3(0f, 0.065f, -0.11f), 0.125f, meatLight, 9, 0.90f, 0.10f, 7f);
+
+        return LowPoly.BuildMesh("MeatMesh", verts, cols, tris);
     }
 
     static Mesh BuildGemMesh()
