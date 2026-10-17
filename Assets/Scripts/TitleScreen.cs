@@ -82,6 +82,10 @@ public class TitleScreen : MonoBehaviour
 
         if (_camRef != null) _camStartYaw = _camRef.transform.eulerAngles.y;
 
+        // 开幕主题曲：作者原创的《孙狗大冒险》（Resources/Audio/bgm/theme.mp3），
+        // 点"进入游戏"后由 Exit() 切回开放世界的循环曲
+        if (VoxelAudio.Instance != null) VoxelAudio.Instance.PlayBgm(VoxelAudio.BgmTheme, 1.45f);
+
         BuildFont();
         BuildGradients();
         BuildMotes();
@@ -189,6 +193,9 @@ public class TitleScreen : MonoBehaviour
         IsOpen = false;
         Cursor.lockState = CursorLockMode.Locked;      // 点一下就进游戏并抓住鼠标（和原神一样）
         Cursor.visible = false;
+
+        // 标题放完了：切回开放世界的环境 BGM
+        if (VoxelAudio.Instance != null) VoxelAudio.Instance.PlayBgm(VoxelAudio.BgmWorld);
 
         Destroy(gameObject);
     }

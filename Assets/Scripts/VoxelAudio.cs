@@ -21,8 +21,14 @@ public class VoxelAudio : MonoBehaviour
 
     const string SfxRoot   = "Audio/";                  // 音效组的根目录
     const string BgmFolder = "Audio/bgm/";
-    const string BgmDefault = "overworld";              // 默认循环曲
+    const string BgmDefault = "overworld";              // 进游戏后的循环曲（开放世界 BGM）
     const string MuteKey   = "CodelyDemo.Audio.Mute";
+
+    /// <summary>主题曲：Resources/Audio/bgm/theme.mp3 —— 作者原创的《孙狗大冒险》，用在开幕 / 标题画面上</summary>
+    public const string BgmTheme = "theme";
+
+    /// <summary>开放世界里的循环曲名（标题放完、进入游戏时切回它）</summary>
+    public const string BgmWorld = BgmDefault;
 
     public const float SfxVolume = 0.75f;
     public const float BgmVolume = 0.34f;
@@ -32,6 +38,7 @@ public class VoxelAudio : MonoBehaviour
 
     AudioSource _bgm;
     AudioSource _sfx;      // 2D 音效专用（BGM 那条是循环的，别混着用）
+    float _bgmVolumeScale = 1f;    // 当前这首曲子的额外音量倍率（主题曲比环境曲响一点）
     bool _muted;
 
     /// <summary>现在是不是静音</summary>
@@ -66,24 +73,56 @@ public class VoxelAudio : MonoBehaviour
 
     // ---------- BGM ----------
 
-    /// <summary>放一首 BGM（循环）。名字是 Resources/Audio/bgm/ 下的文件名，没有就退回默认曲</summary>
-    public void PlayBgm(string name)
+    /// <summary>放一首 BGM（循环）。名字是 Resources/Audio/bgm/ 下的文件名，没有就退回文件夹里的第一首。
+    /// volume 是额外倍率（主题曲比环境曲稍微响一点，用的是同一个基准音量）</summary>
+    public void PlayBgm(string name, float volume = 1f)
     {
         if (_bgm == null) return;
 
-        var clip = Resources.Load<AudioClip>(BgmFolder + name) ?? Resources.Load<AudioClip>(BgmFolder + BgmDefault);
+        var clip = LoadBgm(name);
         if (clip == null)
         {
             if (_missing.Add(BgmFolder + name))
-                Debug.LogWarning($"[VoxelAudio] 没找到 BGM Resources/{BgmFolder}{name}，这次不出声。");
+                Debug.LogWarning($"[VoxelAudio] 没找到 BGM Resources/{BgmFolder}（丢一首曲子进那个文件夹即可），这次不出声。");
             return;
         }
 
-        if (_bgm.clip == clip && _bgm.isPlaying) return;
+        if (_bgm.clip == clip && _bgm.isPlaying)
+        {
+            _bgmVolumeScale = volume;
+            _bgm.volume = _muted ? 0f : BgmVolume * volume;      // 同一首再点一次：只调音量
+            return;
+        }
 
+        _bgmVolumeScale = volume;
         _bgm.clip = clip;
-        _bgm.volume = _muted ? 0f : BgmVolume;
+        _bgm.volume = _muted ? 0f : BgmVolume * volume;
         _bgm.Play();
+
+        // 记一笔"到底在播哪首、多长"——排查"主界面没换曲／没声音"时，看这行就够了
+        // （主题曲《孙狗大冒险》= Resources/Audio/bgm/theme，时长不应该是 0.0 秒）
+        Debug.Log($"[VoxelAudio] 现在播放 BGM '{clip.name}'（时长 {clip.length:0.0} 秒，音量倍率 {volume:0.00}）。");
+    }
+
+    /// <summary>
+    /// 取一首 BGM：先按名字找，找不到就退回 bgm 文件夹里的第一首。
+    /// ★ 一定要有这层退回：曲子是从资源库下下来再改名的，代码里的名字和文件名一旦对不上，
+    ///   表现就是"进游戏没声音"，而且不报错很难查（这次就踩了：文件叫 overworld1、代码找 overworld）。
+    /// </summary>
+    static AudioClip LoadBgm(string name)
+    {
+        var direct = Resources.Load<AudioClip>(BgmFolder + name);
+        if (direct != null) return direct;
+
+        var all = Resources.LoadAll<AudioClip>("Audio/bgm");
+        if (all == null || all.Length == 0) return null;
+
+        // ★ 退回"文件夹第一首"时必须吵一声。原来这里是**静默**退回，于是"放错曲"看起来和"没声音"一样难查：
+        //   theme.mp3 当时还没被编辑器导入，主界面就静默地接着放 overworld，谁也不知道。
+        Debug.LogWarning($"[VoxelAudio] 找不到 BGM Resources/{BgmFolder}{name}，" +
+                         $"这次退回播放文件夹里的第一首 '{all[0].name}'。" +
+                         $"要指定那首，就让文件名和代码里的名字一致（或在调用处改 PlayBgm 的名字）。");
+        return all[0];
     }
 
     // ---------- 音效 ----------
@@ -123,7 +162,7 @@ public class VoxelAudio : MonoBehaviour
         PlayerPrefs.SetInt(MuteKey, Instance._muted ? 1 : 0);
         PlayerPrefs.Save();
 
-        if (Instance._bgm != null) Instance._bgm.volume = Instance._muted ? 0f : BgmVolume;
+        if (Instance._bgm != null) Instance._bgm.volume = Instance._muted ? 0f : BgmVolume * Instance._bgmVolumeScale;
         return Instance._muted;
     }
 
