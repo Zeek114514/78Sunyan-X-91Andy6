@@ -91,6 +91,7 @@ public class VoxelMenu : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (!IsOpen) return;
 
         EnsureStyles();

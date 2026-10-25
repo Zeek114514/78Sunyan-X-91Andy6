@@ -255,6 +255,7 @@ public class VoxelInventory : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (!IsOpen) return;
 
         Layout();

@@ -422,6 +422,7 @@ public class VoxelGacha : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (!IsOpen) return;
 
         Layout();

@@ -811,6 +811,7 @@ public class VoxelNpc : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_labelTop == null || _camera == null) return;
         if (Cursor.lockState != CursorLockMode.Locked) return;   // 开始面板/对话框时先不画
         EnsureStyle();

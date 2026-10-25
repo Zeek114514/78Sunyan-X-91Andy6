@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: XChKsX6tV3JmB3EoD9fcDGLlDhNbIp5JFUB+CkCuM75ND4TVYJT9FMo=
+guid: cbe4d04952bf98245bd26206b703182f
 ModelImporter:
   serializedVersion: 22361
   internalIDToNameTable: []
@@ -35,7 +35,7 @@ ModelImporter:
     extraExposedTransformPaths: []
     extraUserProperties: []
     clipAnimations: []
-    isReadable: 0
+    isReadable: 1
     tuanjieGIEnable: 0
     tuanjieGIGenSDFFactor: 1
     tuanjieGIGenSDFBias: 0.25

@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 /// <summary>
 /// 运行时自动搭场景：直接按 Play 就能玩，不需要手改 SampleScene。
@@ -17,6 +18,18 @@ public static class VoxelBootstrap
     {
         // 如果场景里已经手动摆过一套，就不重复生成
         if (Object.FindObjectOfType<OpenWorld>() != null) return;
+
+        TitleScreen.Begin(BuildDestination);
+    }
+
+    public static Camera BuildDestination()
+    {
+        // Every login starts a fresh training session; the exit builds the original world.
+        return VoxelTutorial.Begin(BuildWorld).ViewCamera;
+    }
+
+    static void BuildWorld()
+    {
 
         // ---------- 1. 开放世界地形（蒙德草原风：平滑丘陵 + 湖水 + 树石 + 后处理）----------
         var worldGo = new GameObject("OpenWorld");
@@ -50,11 +63,15 @@ public static class VoxelBootstrap
         }
 
         cam.transform.SetParent(playerGo.transform, false);
-        cam.clearFlags      = CameraClearFlags.SolidColor;   // 有天空盒时 OpenWorld 会把它改成 Skybox
+        // OpenWorld.Awake has already installed the skybox before this camera is configured.
+        cam.clearFlags      = RenderSettings.skybox != null ? CameraClearFlags.Skybox : CameraClearFlags.SolidColor;
         cam.backgroundColor = SkyColor;
         cam.nearClipPlane   = 0.1f;
         cam.farClipPlane   = 3200f;    // 地图 1800 米（对角 2546）+ 东北边有雪顶、东南海上有稻妻，裁剪面要跟着拉开
         cam.fieldOfView     = 72f;
+        cam.GetUniversalAdditionalCameraData().requiresDepthTexture = true;
+
+        worldGo.AddComponent<VoxelEnvironment>().Init(cam, null, world);
 
         player.Init(cam.transform, world);
 
@@ -151,6 +168,9 @@ public static class VoxelBootstrap
         // ---------- 8. NPC：出生点附近的两个小人，数据在 VoxelNpcData 里 ----------
         SpawnNpc("NpcSunYan", VoxelNpcData.SunYan(),   3,   3, 0f, world, playerGo.transform);
         SpawnNpc("NpcAndy",   VoxelNpcData.Andy(),   -10, -10, 3f, world, playerGo.transform);
+        var remielleSpot = world.SpawnPoint + new Vector3(7, 0, 3);
+        remielleSpot.y = world.SurfaceY(remielleSpot.x, remielleSpot.z);
+        LocalRemielle.SpawnDisplay(world.transform, remielleSpot, cam, world);
 
         // ---------- 8.5 世界地图 / 小地图（左上角小地图常驻，M 键开大地图）----------
         // ★ 必须排在所有生成器之后：大地图的底图是在 Init 里一次性烘出来的（1024×1024），
@@ -165,11 +185,7 @@ public static class VoxelBootstrap
         // var platform = platformGo.AddComponent<TestPlatform>();
         // platform.Init(world, playerGo.transform); 然后 TeleportPlayer(playerGo, platform.PlayerSpawnPoint);
 
-        // ---------- 9. 开幕动画（标题画面）----------
-        // 放在最后：世界已经生成好，标题就浮在真实场景上面（相机在标题期间缓慢横移当运镜）。
-        // 标题播放期间会把玩家的移动 / 攻击 / 交互三个组件关掉，点"进入游戏"才交还控制权
-        var titleGo = new GameObject("TitleScreen");
-        titleGo.AddComponent<TitleScreen>().Init(cam, player, combat, interaction);
+        // Startup branding is played once before the tutorial, not again on leaving training.
 
         Debug.Log("[VoxelDemo] 开放世界生成完毕。WASD 移动 / 空格 跳跃 / 左键 攻击 / Q 丢道具 / E 开宝箱，" +
                   "T 对话框，P 祈愿，B 背包，C 角色养成，M 世界地图，R 吃兽肉，/fly 飞行，/eat 恢复饱食度。");

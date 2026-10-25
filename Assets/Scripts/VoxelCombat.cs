@@ -13,6 +13,9 @@ using UnityEngine;
 /// </summary>
 public class VoxelCombat : MonoBehaviour
 {
+    // Emitted only after an action passes its normal cooldown/energy checks.
+    public event System.Action<string> ActionPerformed;
+    public Transform EffectParent { get; set; }
     public float range       = 3.4f;    // 够得着的距离（从相机算）
     public float damage      = 32f;     // 兜底伤害：没接角色系统时用
     public float interval    = 0.45f;   // 两下之间的间隔
@@ -63,6 +66,7 @@ public class VoxelCombat : MonoBehaviour
 
         state.StartSkillCooldown();
         _cooldown = SkillCastGap;
+        ActionPerformed?.Invoke("skill");
 
         int hits = AreaDamage(state.SkillDamage, SkillRadius, state.Info.SkillName);
         PlayCastFx(state.Info.ElementColor, SkillRadius, 0.5f, 0.55f);
@@ -85,6 +89,7 @@ public class VoxelCombat : MonoBehaviour
 
         state.ConsumeBurst();
         _cooldown = SkillCastGap * 1.6f;
+        ActionPerformed?.Invoke("burst");
 
         int hits = AreaDamage(state.BurstDamage, BurstRadius, state.Info.BurstName);
         PlayCastFx(state.Info.ElementColor, BurstRadius, 1.1f, 0.9f);
@@ -146,6 +151,7 @@ public class VoxelCombat : MonoBehaviour
 
         var root = new GameObject("CastFx");
         root.transform.position = transform.position;
+        if (EffectParent != null) root.transform.SetParent(EffectParent, true);
 
         var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         var column = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -195,6 +201,7 @@ public class VoxelCombat : MonoBehaviour
     void Attack()
     {
         _cooldown = interval;
+        ActionPerformed?.Invoke("attack");
 
         Vector3 origin  = _camera.position;
         Vector3 forward = _camera.forward;
@@ -292,6 +299,7 @@ public class VoxelCombat : MonoBehaviour
     /// <summary>命中反馈：准星上闪一个小叉，打中了心里有底（暴击时是金红色，一眼就看得出来）</summary>
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_hitFlash <= 0f) return;
 
         if (_mark == null)

@@ -760,6 +760,7 @@ public class VoxelMonster : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_labelTop == null || _camera == null || _state == State.Dead) return;
         if (Cursor.lockState != CursorLockMode.Locked) return;
 

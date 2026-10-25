@@ -1,411 +1,329 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.Rendering;
 
-/// <summary>
-/// 开幕动画（标题画面）：黑场淡出 → 游戏名「琰神」浮出 → 公司名浮出 → 点击进入游戏。
-///
-/// 参考原神那套的做法：毛笔感的衬线字 + 金色 + 上下压暗 + 飘动的金色光点，
-/// 背景就是真实生成的游戏世界（标题期间相机缓慢横移当运镜）。
-///
-/// 三条规则：
-///   · **播放完才能点击**（需求原话"播放完点击进入游戏"）—— 动画没走完点击一律忽略；
-///   · 标题期间**关掉玩家的三个输入组件**（移动 / 攻击 / 交互），
-///     这样相机可以自由做运镜，玩家也不会在标题里乱跑；
-///   · 通过 <see cref="IsOpen"/> 让 HUD / 小地图 / 宝箱 / 方碑一起闭嘴 —— 和项目里
-///     VoxelChat / VoxelGacha / WorldMap 的用法一致，不加第二套机制。
-///
-/// 字体用系统里的中文楷体（STKaiti / 楷体 / SimSun 依次尝试）：楷体是毛笔笔锋，
-/// 最接近原神那套标题字，而且字形一定正确 —— 用 AI 生图做 Logo 有把汉字画错的风险。
-/// </summary>
-public class TitleScreen : MonoBehaviour
+/// <summary>An additive, independent 3D login scene. Destination creation starts only behind white loading.</summary>
+public sealed class TitleScreen : MonoBehaviour
 {
-    /// <summary>标题画面开着（其它系统照这个让出输入和屏幕）</summary>
+    public enum Phase { Company, GameLogo, ContentWarning, Reveal, Waiting, Approach, Loading, Uncover, Error, Complete }
     public static bool IsOpen { get; private set; }
+    public Phase CurrentPhase { get; private set; }
+    public Camera LoginCamera { get; private set; }
+    public Camera DestinationCamera { get; private set; }
+    public LoginSanctuary Sanctuary { get; private set; }
+    public float WhiteOpacity { get; private set; } = 1;
+    public int EntryRequestCount { get; private set; }
+    public bool SceneReady { get; private set; }
+    public string LastError { get; private set; }
+    public bool RoutedToTutorial { get; private set; }
+    LoginSequenceSettings _settings;
+    Func<Camera> _enterGame;
+    Scene _loginScene, _destinationScene;
+    Texture2D _company, _game, _contentWarning;
+    Material _logoMaterial;
+    AudioSource _music;
+    float _phaseTime, _idleTime, _approachStartZ;
+    float _animationDelta, _prepareStartedAt;
+    int _lastPresentedFrame = -1000, _warmupFrames, _phaseRepaints;
+    int _consumedPresentationFrame = -1000;
+    bool _waitingInputArmed;
+    GUIStyle _hint, _status;
+    Material _savedSky;
+    Color _savedAmbient;
+    AmbientMode _savedAmbientMode;
+    bool _savedFog, _restored;
+    readonly List<Light> _lights = new List<Light>();
+    readonly List<AudioListener> _listeners = new List<AudioListener>();
 
-    // ---------- 时间轴（秒） ----------
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetState() { IsOpen = false; }
 
-    const float FadeIn   = 0.85f;   // 黑场淡出
-    const float LogoIn   = 1.30f;   // 游戏名浮出（从 FadeIn 开始）
-    const float LineIn   = 0.55f;   // 金线展开
-    const float CompIn   = 1.00f;   // 公司名浮出
-    const float FadeOut  = 0.55f;   // 点击后收场
-
-    float Ready => FadeIn + LogoIn + LineIn + CompIn;   // 到这之后才接受点击
-
-    // ---------- 外观 ----------
-
-    static readonly Color Gold      = new Color(0.98f, 0.85f, 0.52f);
-    static readonly Color GoldDeep  = new Color(0.72f, 0.53f, 0.22f);
-    static readonly Color GoldPale  = new Color(1.00f, 0.95f, 0.80f);
-
-    const string GameName    = "琰神";
-    const string CompanyName = "78Sunyan X 91Andy6 Prostitution Limit .inc";
-
-    // ---------- 状态 ----------
-
-    enum Phase { Intro, Waiting, Out }
-
-    Phase _phase = Phase.Intro;
-    float _t;                       // 从标题开始算的秒数（不受 timeScale 影响）
-
-    VoxelPlayer _player;
-    VoxelCombat _combat;
-    VoxelInteraction _interaction;
-
-    Camera _camRef;
-    float _camStartYaw;
-
-    GUIStyle _logoStyle, _companyStyle, _promptStyle, _taglineStyle;
-    Font _titleFont;
-    Texture2D _gradTop, _gradBottom;
-
-    readonly System.Collections.Generic.List<Vector2> _motes = new System.Collections.Generic.List<Vector2>();
-
-    // ---------- 初始化 ----------
-
-    /// <summary>由 VoxelBootstrap 在最后调用。传进来的三个组件会在标题期间被关掉</summary>
-    public void Init(Camera cam, VoxelPlayer player, VoxelCombat combat, VoxelInteraction interaction)
+    public static TitleScreen Begin(Func<Camera> enterGame)
     {
-        IsOpen = true;
-
-        _camRef = cam;
-        _player = player;
-        _combat = combat;
-        _interaction = interaction;
-
-        Cursor.lockState = CursorLockMode.None;      // 标题期间不锁鼠标
-        Cursor.visible = true;
-
-        // 标题期间玩家不能动：关掉这三个组件（相机因此空出来做运镜）
-        if (_player != null) _player.enabled = false;
-        if (_combat != null) _combat.enabled = false;
-        if (_interaction != null) _interaction.enabled = false;
-
-        if (_camRef != null) _camStartYaw = _camRef.transform.eulerAngles.y;
-
-        // 开幕主题曲：作者原创的《孙狗大冒险》（Resources/Audio/bgm/theme.mp3），
-        // 点"进入游戏"后由 Exit() 切回开放世界的循环曲
-        if (VoxelAudio.Instance != null) VoxelAudio.Instance.PlayBgm(VoxelAudio.BgmTheme, 1.45f);
-
-        BuildFont();
-        BuildGradients();
-        BuildMotes();
+        var existing = FindObjectOfType<TitleScreen>(); if (existing != null) return existing;
+        var original = SceneManager.GetActiveScene();
+        var scene = SceneManager.CreateScene("LoginSanctuary");
+        var go = new GameObject("LoginSequence"); SceneManager.MoveGameObjectToScene(go, scene);
+        var title = go.AddComponent<TitleScreen>(); title._loginScene = scene; title._destinationScene = original;
+        title.Init(enterGame); return title;
     }
 
-    void BuildFont()
+    void Init(Func<Camera> enterGame)
     {
-        // 楷体优先（毛笔笔锋，最像原神那套标题字），找不到再往回落
-        _titleFont = Font.CreateDynamicFontFromOSFont(
-            new[] { "STKaiti", "KaiTi", "楷体", "STZhongsong", "SimSun", "Microsoft YaHei", "Arial" }, 120);
+        IsOpen = true; _enterGame = enterGame;
+        _settings = Resources.Load<LoginSequenceSettings>("LoginSequenceSettings");
+        if (_settings == null) { Fail("缺少登录动画配置 LoginSequenceSettings。"); return; }
+        _savedSky = RenderSettings.skybox; _savedAmbient = RenderSettings.ambientLight;
+        _savedAmbientMode = RenderSettings.ambientMode; _savedFog = RenderSettings.fog;
+        foreach (var light in FindObjectsOfType<Light>())
+            if (light.enabled && light.type == LightType.Directional) { _lights.Add(light); light.enabled = false; }
+        foreach (var listener in FindObjectsOfType<AudioListener>())
+            if (listener.enabled) { _listeners.Add(listener); listener.enabled = false; }
+        Cursor.lockState = CursorLockMode.None; Cursor.visible = false;
+        var cameraGo = new GameObject("Login camera"); cameraGo.layer = LoginSanctuary.LoginLayer;
+        cameraGo.transform.SetParent(transform, false);
+        LoginCamera = cameraGo.AddComponent<Camera>(); LoginCamera.depth = 100;
+        LoginCamera.cullingMask = 1 << LoginSanctuary.LoginLayer; LoginCamera.clearFlags = CameraClearFlags.SolidColor;
+        LoginCamera.backgroundColor = Color.white; LoginCamera.nearClipPlane = 0.1f; LoginCamera.farClipPlane = 1600;
+        cameraGo.AddComponent<AudioListener>();
+        LoginCamera.transform.position = new Vector3(0, _settings.cameraHeight, _settings.cameraStartZ);
+        LoginCamera.transform.rotation = Quaternion.identity;
+        _music = gameObject.AddComponent<AudioSource>(); _music.playOnAwake = false; _music.loop = true; _music.spatialBlend = 0; _music.volume = 0;
+        _prepareStartedAt = Time.realtimeSinceStartup;
+        StartCoroutine(Prepare());
     }
 
-    /// <summary>做一个 1×64 的竖直渐变贴图（拉伸到全屏就是一个柔和的压暗），比画几百条横线便宜</summary>
-    void BuildGradients()
+    IEnumerator Prepare()
     {
-        _gradTop = MakeGradient(true);
-        _gradBottom = MakeGradient(false);
-    }
-
-    static Texture2D MakeGradient(bool fromTop)
-    {
-        const int h = 64;
-        var tex = new Texture2D(1, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
-        for (int y = 0; y < h; y++)
+        var company = Resources.LoadAsync<Texture2D>("Branding/CompanyLogo");
+        var game = Resources.LoadAsync<Texture2D>("Branding/GameLogo");
+        var warning = Resources.LoadAsync<Texture2D>("Branding/ContentWarning");
+        var music = Resources.LoadAsync<AudioClip>(_settings.musicResource);
+        yield return company; yield return game; yield return music;
+        yield return warning;
+        try
         {
-            float t = (float)y / (h - 1);                 // 0 = 底, 1 = 顶
-            if (!fromTop) t = 1f - t;
-            float a = Mathf.Pow(t, 1.8f) * 0.82f;         // 越靠边越黑
-            tex.SetPixel(0, y, new Color(0.03f, 0.035f, 0.05f, a));
+            _company = company.asset as Texture2D; _game = game.asset as Texture2D;
+            _contentWarning = warning.asset as Texture2D;
+            if (_contentWarning == null) throw new InvalidOperationException("内容提示图片未能加载。");
+            if (_company == null || _game == null) throw new InvalidOperationException("公司或游戏 Logo 图片未能加载。");
+            var shader = Shader.Find("Voxel/BrandingLogo");
+            if (shader == null) throw new InvalidOperationException("Logo 显示材质不可用。");
+            _logoMaterial = new Material(shader);
+            Sanctuary = gameObject.AddComponent<LoginSanctuary>(); Sanctuary.Build(LoginCamera);
+            RenderSettings.skybox = Sanctuary.Sky; RenderSettings.fog = false;
+            RenderSettings.ambientMode = AmbientMode.Flat; RenderSettings.ambientLight = new Color(0.72f, 0.78f, 0.84f);
+            LoginCamera.clearFlags = CameraClearFlags.Skybox;
+            _music.clip = music.asset as AudioClip;
+            if (_music.clip == null) Debug.LogWarning("[Login] No login music at Resources/" + _settings.musicResource + "; audio interface remains available.");
+            SceneReady = true;
         }
-        tex.Apply();
-        return tex;
+        catch (Exception error) { Fail(error.Message); Debug.LogException(error); }
     }
-
-    void BuildMotes()
-    {
-        // 飘动的金色小光点：固定哈希出初始位置，运行时按正弦漂
-        for (int i = 0; i < 46; i++)
-        {
-            float x = LowPoly.Hash01(i, 7, 2001);
-            float y = LowPoly.Hash01(i, 11, 2002);
-            _motes.Add(new Vector2(x, y));
-        }
-    }
-
-    void OnDestroy()
-    {
-        IsOpen = false;
-        if (_gradTop != null) Destroy(_gradTop);
-        if (_gradBottom != null) Destroy(_gradBottom);
-    }
-
-    // ---------- 主循环 ----------
 
     void Update()
     {
-        _t += Time.unscaledDeltaTime;
-
-        if (_phase == Phase.Intro)
+        if (_settings == null || LoginCamera == null) return;
+        // Consume each visible repaint once. A repaint may arrive more than one
+        // frame after Update in an editor Game view; that must not stop the clock.
+        bool presented = _lastPresentedFrame > _consumedPresentationFrame;
+        _animationDelta = LoginAnimationClock.Step(Time.unscaledDeltaTime, presented, Application.isFocused,
+            SceneReady && _warmupFrames >= 2, _settings.maximumAnimationStep);
+        _phaseTime += _animationDelta;
+        if (_animationDelta > 0) _consumedPresentationFrame = _lastPresentedFrame;
+        LoginCamera.fieldOfView = Mathf.Max(_settings.verticalFov, LoginCamera.aspect < 1.1f ? 68 : _settings.verticalFov);
+        if (_music != null)
         {
-            if (_t >= Ready) _phase = Phase.Waiting;
+            float target = PlayerPrefs.GetInt("CodelyDemo.Audio.Mute", 0) != 0 ? 0 : _settings.musicVolume;
+            if (CurrentPhase < Phase.Reveal) target = 0;
+            else if (CurrentPhase == Phase.Approach) target *= 1 - Mathf.Clamp01(_phaseTime / Mathf.Max(0.1f,_settings.approachDuration));
+            else if (CurrentPhase >= Phase.Loading) target = 0;
+            _music.volume = Mathf.MoveTowards(_music.volume,target,_animationDelta * _settings.musicVolume / Mathf.Max(0.1f,_settings.musicFadeIn));
         }
-        else if (_phase == Phase.Waiting)
+        if (CurrentPhase == Phase.Company)
         {
-            if (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space) ||
-                Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            if (!SceneReady && Time.realtimeSinceStartup - _prepareStartedAt > Mathf.Max(10,_settings.cameraTimeout))
             {
-                _phase = Phase.Out;
-                _t = 0f;
+                StopAllCoroutines(); Fail("登录资源准备超时，请重新启动；已有游戏进度未重置。"); return;
             }
+            if (SceneReady && _phaseTime >= _settings.companyFadeIn + _settings.companyHold + _settings.companyFadeOut) Change(Phase.GameLogo);
         }
-        else // Out
+        else if (CurrentPhase == Phase.GameLogo)
         {
-            if (_t >= FadeOut)
-            {
-                Exit();
-                return;
-            }
+            if (_phaseTime >= _settings.gameFadeIn + _settings.gameHold + _settings.gameFadeOut) Change(Phase.ContentWarning);
         }
-
-        DriftCamera();
+        else if (CurrentPhase == Phase.ContentWarning)
+        {
+            if (_phaseTime >= _settings.warningFadeIn + _settings.warningHold + _settings.warningFadeOut) Change(Phase.Reveal);
+        }
+        else if (CurrentPhase == Phase.Reveal)
+        {
+            WhiteOpacity = 1 - Ease(_phaseTime / Mathf.Max(0.1f,_settings.sceneReveal));
+            if (WhiteOpacity <= 0) Change(Phase.Waiting);
+        }
+        else if (CurrentPhase == Phase.Waiting)
+        {
+            _idleTime += _animationDelta;
+            // Monotonic, bounded drift: no loop reset, jump, lateral sway or player input.
+            float drift = _settings.idleDistance * (1 - Mathf.Exp(-_idleTime / Mathf.Max(1,_settings.idleTimeConstant)));
+            LoginCamera.transform.position = new Vector3(0,_settings.cameraHeight,_settings.cameraStartZ + drift);
+            // The click that restores focus (or was held during loading) only arms input.
+            if (!_waitingInputArmed)
+            {
+                if (Application.isFocused && presented && _phaseRepaints >= 2 &&
+                    !Input.GetMouseButton(0) && !Input.GetKey(KeyCode.Return) && !Input.GetKey(KeyCode.KeypadEnter))
+                    _waitingInputArmed = true;
+            }
+            else if (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) TryEnter();
+        }
+        else if (CurrentPhase == Phase.Approach)
+        {
+            float t = Mathf.Clamp01(_phaseTime / Mathf.Max(0.1f,_settings.approachDuration));
+            LoginCamera.transform.position = new Vector3(0,_settings.cameraHeight,Mathf.Lerp(_approachStartZ,_settings.cameraEndZ,Ease(t)));
+            Sanctuary.SetDoor(Ease(Mathf.InverseLerp(_settings.doorStart,_settings.doorEnd,t)));
+            WhiteOpacity = Ease(Mathf.InverseLerp(_settings.whiteStart,1,t));
+            if (t >= 1) { Change(Phase.Loading); StartCoroutine(LoadDestination()); }
+        }
     }
 
-    /// <summary>背景运镜：相机极慢地横移 + 轻微起伏，让标题后面是"活的"世界</summary>
-    void DriftCamera()
+    public bool TryEnter()
     {
-        if (_camRef == null) return;
-
-        float k = Mathf.Min(_t, Ready + 4f);
-        float yaw = _camStartYaw + k * 1.5f;                       // 每秒 1.5 度，几乎是察觉不到的缓移
-        float pitch = Mathf.Sin(k * 0.35f) * 1.2f;
-
-        _camRef.transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
+        if (!SceneReady || CurrentPhase != Phase.Waiting || !_waitingInputArmed || !Application.isFocused ||
+            Time.frameCount - _lastPresentedFrame > 1) return false;
+        EntryRequestCount++; _approachStartZ = LoginCamera.transform.position.z;
+        Change(Phase.Approach); return true;
     }
-
-    /// <summary>收场：把相机还给玩家、重新锁鼠标、打开输入组件</summary>
-    void Exit()
+    static float Ease(float t) { t=Mathf.Clamp01(t);return t*t*t*(t*(t*6-15)+10); }
+    void Change(Phase phase)
     {
-        if (_camRef != null) _camRef.transform.localRotation = Quaternion.identity;
-
-        if (_player != null) _player.enabled = true;
-        if (_combat != null) _combat.enabled = true;
-        if (_interaction != null) _interaction.enabled = true;
-
-        IsOpen = false;
-        Cursor.lockState = CursorLockMode.Locked;      // 点一下就进游戏并抓住鼠标（和原神一样）
-        Cursor.visible = false;
-
-        // 标题放完了：切回开放世界的环境 BGM
-        if (VoxelAudio.Instance != null) VoxelAudio.Instance.PlayBgm(VoxelAudio.BgmWorld);
-
-        Destroy(gameObject);
+        CurrentPhase=phase;_phaseTime=0;_phaseRepaints=0;_waitingInputArmed=false;
+        Cursor.visible = phase == Phase.Waiting || phase == Phase.Error;
+        Debug.Log("[Login] Phase=" + phase);
+        if (phase==Phase.Reveal && _music!=null && _music.clip!=null) _music.Play();
     }
 
-    // ---------- 画面 ----------
-
-    void EnsureStyles()
+    void OnApplicationFocus(bool focused)
     {
-        if (_logoStyle != null) return;
-
-        _logoStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, font = _titleFont };
-        _companyStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, font = _titleFont };
-        _promptStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, font = _titleFont };
-        _taglineStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, font = _titleFont };
+        _lastPresentedFrame=-1000;_phaseRepaints=0;_waitingInputArmed=false;
+        if (CurrentPhase==Phase.Company) _warmupFrames=0;
     }
+
+    IEnumerator LoadDestination()
+    {
+        WhiteOpacity = 1;
+        // Let a complete loading frame render before any synchronous runtime world generation.
+        yield return new WaitForEndOfFrame(); yield return null;
+        LoginCamera.clearFlags = CameraClearFlags.SolidColor; LoginCamera.backgroundColor = Color.white;
+        LoginCamera.cullingMask = 0;
+        RestoreLightingAndListeners();
+        var listener = LoginCamera.GetComponent<AudioListener>(); if (listener != null) listener.enabled=false;
+        try
+        {
+            SceneManager.SetActiveScene(_destinationScene);
+            RoutedToTutorial = true;
+            DestinationCamera = _enterGame();
+        }
+        catch (Exception error) { Fail("目标场景加载失败："+error.Message);Debug.LogException(error); }
+        if (CurrentPhase == Phase.Error) yield break;
+        float deadline = Time.realtimeSinceStartup + Mathf.Max(1,_settings.cameraTimeout);
+        while (DestinationCamera == null || !DestinationCamera.isActiveAndEnabled)
+        {
+            if (Time.realtimeSinceStartup >= deadline) { Fail("目标相机未能在规定时间内就绪，请重新启动游戏。已有进度未重置。"); yield break; }
+            yield return null;
+        }
+        // Keep the login camera rendering until the destination has completed two frames.
+        yield return new WaitForEndOfFrame(); yield return new WaitForEndOfFrame();
+        if (DestinationCamera == null || !DestinationCamera.isActiveAndEnabled)
+        {
+            Fail("目标相机在交接时停止工作，已保留加载相机。请重新启动。"); yield break;
+        }
+        LoginCamera.enabled=false; Change(Phase.Uncover);
+        float duration=Mathf.Max(0.1f,_settings.loadingFade);
+        for(float time=0;time<duration;time+=_animationDelta)
+        {
+            if (DestinationCamera == null || !DestinationCamera.isActiveAndEnabled)
+            {
+                LoginCamera.enabled=true; Fail("目标相机意外停止，已恢复加载相机。请重新启动。"); yield break;
+            }
+            WhiteOpacity=1-Ease(time/duration);yield return null;
+        }
+        WhiteOpacity=0; Change(Phase.Complete); IsOpen=false;
+        Cursor.lockState=VoxelTutorial.PanelOpen?CursorLockMode.None:CursorLockMode.Locked;
+        Cursor.visible=VoxelTutorial.PanelOpen;
+        SceneManager.UnloadSceneAsync(_loginScene);
+    }
+
+    void RestoreLightingAndListeners()
+    {
+        if (_restored) return; _restored=true;
+        RenderSettings.skybox=_savedSky;RenderSettings.ambientMode=_savedAmbientMode;RenderSettings.ambientLight=_savedAmbient;RenderSettings.fog=_savedFog;
+        foreach(var light in _lights)if(light!=null)light.enabled=true;
+        foreach(var listener in _listeners)if(listener!=null)listener.enabled=true;
+    }
+    void Fail(string error) { LastError=error;Change(Phase.Error);WhiteOpacity=1;Debug.LogError("[Login] "+error); }
 
     void OnGUI()
     {
-        EnsureStyles();
-
-        float w = Screen.width, h = Screen.height;
-        float outFade = _phase == Phase.Out ? Mathf.Clamp01(_t / FadeOut) : 0f;
-
-        // ---- 上下压暗（黑场淡出就是"上层黑色从 1 收到 0.55"） ----
-        float topAlpha = 1f - Mathf.Clamp01(_t / FadeIn) * 0.45f;
-        topAlpha = Mathf.Max(topAlpha, outFade);
-
-        DrawGradients(w, h, topAlpha);
-
-        // ---- 金色光点 ----
-        DrawMotes(w, h, Mathf.Clamp01(_t / FadeIn));
-
-        // ---- 游戏名 ----
-        float logoA = Mathf.Clamp01((_t - FadeIn) / LogoIn);
-        if (logoA > 0.001f)
+        if (!IsOpen) return;
+        if (CurrentPhase < Phase.Waiting && Event.current.isMouse)
         {
-            float ease = 1f - Mathf.Pow(1f - logoA, 3f);                 // 快出慢收
-            float glow = Mathf.Clamp01((_t - FadeIn - LogoIn) / 0.9f);   // 浮出之后再补一层辉光
-
-            _logoStyle.fontSize = Mathf.RoundToInt(h * 0.165f);
-            float scale = Mathf.Lerp(1.10f, 1.00f, ease);
-            DrawTitle(GameName, w, h * 0.40f, scale, ease * (1f - outFade), glow);
+            Event.current.Use();
+            return;
         }
-
-        // ---- 金线分隔 ----
-        float lineA = Mathf.Clamp01((_t - FadeIn - LogoIn) / LineIn);
-        if (lineA > 0.001f) DrawDivider(w, h * 0.505f, lineA * (1f - outFade), h);
-
-        // ---- 公司名 ----
-        float compA = Mathf.Clamp01((_t - FadeIn - LogoIn - LineIn) / CompIn);
-        if (compA > 0.001f)
+        VoxelTypography.Apply();
+        if (_hint==null) { _hint=new GUIStyle(GUI.skin.label){alignment=TextAnchor.MiddleCenter};_hint.normal.textColor=new Color(0.2f,0.28f,0.36f);_status=new GUIStyle(_hint){wordWrap=true}; }
+        int depth=GUI.depth;var matrix=GUI.matrix;var color=GUI.color;GUI.depth=-2000;GUI.matrix=Matrix4x4.identity;GUI.color=Color.white;
+        try
         {
-            _companyStyle.fontSize = Mathf.RoundToInt(h * 0.0285f);
-            float a = compA * (1f - outFade);
-
-            Rect r = new Rect(0f, h * 0.545f, w, h * 0.04f);
-            Outline(r, CompanyName, _companyStyle, 1.5f, a * 0.75f);
-            GUI.color = new Color(0.86f, 0.90f, 0.94f, a);
-            GUI.Label(r, CompanyName, _companyStyle);
-            GUI.color = Color.white;
-
-            // 副标题：一句小字，让标题画面不那么空
-            _taglineStyle.fontSize = Mathf.RoundToInt(h * 0.019f);
-            Rect t = new Rect(0f, h * 0.605f, w, h * 0.03f);
-            Outline(t, "开放世界 · 元素方碑 · 雪山", _taglineStyle, 1.2f, a * 0.45f);
-            GUI.color = new Color(Gold.r, Gold.g, Gold.b, a * 0.55f);
-            GUI.Label(t, "开放世界 · 元素方碑 · 雪山", _taglineStyle);
-            GUI.color = Color.white;
-        }
-
-        // ---- 点击进入 ----
-        if (_phase == Phase.Waiting)
-        {
-            float pulse = 0.62f + 0.38f * Mathf.Sin(Time.unscaledTime * 3.2f);
-            float a = (1f - outFade) * pulse;
-
-            _promptStyle.fontSize = Mathf.RoundToInt(h * 0.024f);
-            Rect r = new Rect(0f, h * 0.855f, w, h * 0.035f);
-
-            Outline(r, "点击进入游戏", _promptStyle, 1.5f, a * 0.8f);
-            GUI.color = new Color(GoldPale.r, GoldPale.g, GoldPale.b, a);
-            GUI.Label(r, "点击进入游戏", _promptStyle);
-            GUI.color = Color.white;
-        }
-
-        // ---- 收场黑幕 ----
-        if (outFade > 0f)
-        {
-            GUI.color = new Color(0f, 0f, 0f, outFade);
-            GUI.DrawTexture(new Rect(0f, 0f, w, h), Texture2D.whiteTexture);
-            GUI.color = Color.white;
-        }
-    }
-
-    /// <summary>画标题字：先描边（八个方向的深色副本）再叠金色主体，最后盖一层上浅下深的渐变感</summary>
-    void DrawTitle(string text, float w, float centerY, float scale, float alpha, float glow)
-    {
-        if (alpha <= 0.001f) return;
-
-        _logoStyle.fontSize = Mathf.RoundToInt(Screen.height * 0.165f * scale);
-        Rect r = new Rect(0f, centerY - _logoStyle.fontSize * 0.75f, w, _logoStyle.fontSize * 1.5f);
-
-        // 辉光：外圈几层低透明度的金色
-        if (glow > 0.01f)
-        {
-            float g = glow * alpha * 0.20f;
-            for (int i = 1; i <= 3; i++)
+            float w=Screen.width,h=Screen.height;
+            _hint.fontSize=Mathf.Clamp(Mathf.RoundToInt(h*0.027f),18,30);_status.fontSize=Mathf.Clamp(Mathf.RoundToInt(h*0.021f),15,23);
+            if (WhiteOpacity>0) VoxelHud.FillRect(new Rect(0,0,w,h),new Color(1,1,1,WhiteOpacity));
+            if(CurrentPhase==Phase.Company)
             {
-                float o = i * 2.2f * scale;
-                GUI.color = new Color(Gold.r, Gold.g, Gold.b, g / i);
-                GUI.Label(new Rect(r.x, r.y - o, r.width, r.height), text, _logoStyle);
-                GUI.Label(new Rect(r.x, r.y + o, r.width, r.height), text, _logoStyle);
-                GUI.Label(new Rect(r.x - o, r.y, r.width, r.height), text, _logoStyle);
-                GUI.Label(new Rect(r.x + o, r.y, r.width, r.height), text, _logoStyle);
+                float a=Mathf.SmoothStep(0,1,Mathf.Clamp01(_phaseTime/Mathf.Max(0.1f,_settings.companyFadeIn)));
+                float end=_settings.companyFadeIn+_settings.companyHold+_settings.companyFadeOut;
+                a*=Mathf.SmoothStep(0,1,Mathf.Clamp01((end-_phaseTime)/Mathf.Max(0.1f,_settings.companyFadeOut)));
+                DrawLogo(_company,new Vector2(w/2,h/2),Mathf.Min(w*0.8f,h*1.6f),a);
+                if(_phaseTime>end&&!SceneReady)PassiveLabel(new Rect(20,h*0.8f,w-40,40),"正在准备登录场景…",_status);
             }
-        }
-
-        // 描边
-        float s = 2.4f * scale;
-        GUI.color = new Color(0.10f, 0.07f, 0.03f, alpha * 0.92f);
-        for (int dx = -1; dx <= 1; dx++)
-            for (int dy = -1; dy <= 1; dy++)
-                if (dx != 0 || dy != 0)
-                    GUI.Label(new Rect(r.x + dx * s, r.y + dy * s, r.width, r.height), text, _logoStyle);
-
-        // 主体：上浅下深，做出金属渐变的感觉
-        GUI.color = new Color(Gold.r, Gold.g, Gold.b, alpha);
-        GUI.Label(new Rect(r.x, r.y, r.width, r.height), text, _logoStyle);
-
-        GUI.color = new Color(GoldPale.r, GoldPale.g, GoldPale.b, alpha * 0.45f);
-        GUI.Label(new Rect(r.x, r.y - _logoStyle.fontSize * 0.035f, r.width, r.height), text, _logoStyle);
-
-        GUI.color = new Color(GoldDeep.r, GoldDeep.g, GoldDeep.b, alpha * 0.5f);
-        GUI.Label(new Rect(r.x, r.y + _logoStyle.fontSize * 0.045f, r.width, r.height), text, _logoStyle);
-
-        GUI.color = Color.white;
-    }
-
-    /// <summary>标题下面那条金线：中间一个小菱形，两边细线往外展开</summary>
-    void DrawDivider(float w, float y, float a, float h)
-    {
-        float cx = w * 0.5f;
-        float half = Mathf.Lerp(0f, w * 0.19f, a);
-        float th = Mathf.Max(1.5f, h * 0.0018f);
-
-        GUI.color = new Color(Gold.r, Gold.g, Gold.b, a * 0.85f);
-        GUI.DrawTexture(new Rect(cx - half, y, half, th), Texture2D.whiteTexture);
-        GUI.DrawTexture(new Rect(cx, y, half, th), Texture2D.whiteTexture);
-
-        // 菱形（把方块转 45 度）
-        float d = h * 0.011f;
-        var m = GUI.matrix;
-        GUIUtility.RotateAroundPivot(45f, new Vector2(cx, y + th * 0.5f));
-        GUI.DrawTexture(new Rect(cx - d * 0.5f, y + th * 0.5f - d * 0.5f, d, d), Texture2D.whiteTexture);
-        GUI.matrix = m;
-
-        GUI.color = Color.white;
-    }
-
-    void DrawGradients(float w, float h, float alpha)
-    {
-        float g = h * 0.34f;
-
-        GUI.color = new Color(1f, 1f, 1f, alpha);
-        GUI.DrawTexture(new Rect(0f, 0f, w, g), _gradTop, ScaleMode.StretchToFill);
-        GUI.DrawTexture(new Rect(0f, h - g, w, g), _gradBottom, ScaleMode.StretchToFill);
-        GUI.color = Color.white;
-    }
-
-    void DrawMotes(float w, float h, float alpha)
-    {
-        if (alpha <= 0.01f) return;
-
-        float size = Mathf.Max(2f, h * 0.0035f);
-
-        for (int i = 0; i < _motes.Count; i++)
-        {
-            float bx = _motes[i].x, by = _motes[i].y;
-            float t = Time.unscaledTime;
-
-            // 缓慢上飘 + 左右轻摆
-            float x = (bx + Mathf.Sin(t * 0.20f + i) * 0.012f) * w;
-            float y = (1f - Mathf.Repeat(by + t * 0.006f + i * 0.013f, 1f)) * h;
-
-            float twinkle = 0.35f + 0.65f * (0.5f + 0.5f * Mathf.Sin(t * 1.1f + i * 1.7f));
-            float a = alpha * twinkle * 0.42f;
-
-            GUI.color = new Color(GoldPale.r, GoldPale.g, GoldPale.b, a);
-
-            var m = GUI.matrix;
-            GUIUtility.RotateAroundPivot(45f + t * 8f + i * 11f, new Vector2(x, y));
-            GUI.DrawTexture(new Rect(x - size * 0.5f, y - size * 0.5f, size, size), Texture2D.whiteTexture);
-            GUI.matrix = m;
-        }
-
-        GUI.color = Color.white;
-    }
-
-    /// <summary>给一行字画一层深色描边：IMGUI 没有描边功能，就把同一行字画八个偏移副本垫在底下</summary>
-    void Outline(Rect r, string text, GUIStyle style, float off, float alpha)
-    {
-        GUI.color = new Color(0f, 0f, 0f, alpha);
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            for (int dy = -1; dy <= 1; dy++)
+            if(CurrentPhase==Phase.GameLogo)
             {
-                if (dx == 0 && dy == 0) continue;
-                GUI.Label(new Rect(r.x + dx * off, r.y + dy * off, r.width, r.height), text, style);
+                float a=Mathf.SmoothStep(0,1,Mathf.Clamp01(_phaseTime/Mathf.Max(0.1f,_settings.gameFadeIn)));
+                float end=_settings.gameFadeIn+_settings.gameHold+_settings.gameFadeOut;
+                a*=Mathf.SmoothStep(0,1,Mathf.Clamp01((end-_phaseTime)/Mathf.Max(0.1f,_settings.gameFadeOut)));
+                DrawLogo(_game,new Vector2(w/2,h/2),Mathf.Min(w*0.75f,h*1.25f),a);
             }
+            if(CurrentPhase==Phase.ContentWarning)
+            {
+                float duration = _settings.warningFadeIn + _settings.warningHold + _settings.warningFadeOut;
+                float alpha = Ease(_phaseTime / Mathf.Max(.1f, _settings.warningFadeIn))
+                    * Ease((duration - _phaseTime) / Mathf.Max(.1f, _settings.warningFadeOut));
+                float scale = Mathf.Min(w / 960f, h / 720f);
+                GUI.matrix = Matrix4x4.TRS(new Vector3((w - 960 * scale) / 2, (h - 720 * scale) / 2, 0), Quaternion.identity, Vector3.one * scale);
+                GUI.color = new Color(1, 1, 1, alpha);
+                GUI.DrawTexture(new Rect(400, 26, 160, 190), _contentWarning, ScaleMode.ScaleToFit, true);
+                var notice = new GUIStyle(_status) { fontSize = 23, alignment = TextAnchor.UpperLeft, wordWrap = true };
+                const string text = "警告，本游戏包含限制級內容，可能涉及下列要素：\n\n・成人向描寫（R18+）\n・心理或情感衝擊性描寫\n・爭議性或不適宜未成年之元素\n・游戏画面包含Sunyan和Andy进行CCB的细节描画\n\n（其中一部分可以通过安全模式的选择避免观看到画面细节）";
+                PassiveLabel(new Rect(90, 242, 780, 380), text, notice);
+                notice.fontSize = 17;
+                PassiveLabel(new Rect(90, 640, 780, 36), "功能状态：安全模式尚未实装。", notice);
+                GUI.matrix = Matrix4x4.identity;
+                GUI.color = Color.white;
+            }
+            if(CurrentPhase==Phase.Waiting)PassiveLabel(new Rect(20,h*0.84f,w-40,50),"点击进入",_hint);
+            if(CurrentPhase==Phase.Loading)PassiveLabel(new Rect(24,h*0.76f,w-48,50),"正在准备旅程…",_status);
+            if(CurrentPhase==Phase.Error)PassiveLabel(new Rect(40,h*0.4f,w-80,h*0.3f),LastError+"\n请停止运行后重新进入；游戏进度没有重置。",_status);
         }
-        GUI.color = Color.white;
+        finally
+        {
+            if (Event.current.type==EventType.Repaint && SceneReady)
+            {
+                if (_lastPresentedFrame!=Time.frameCount)
+                {
+                    _phaseRepaints++;
+                    if (Application.isFocused) _warmupFrames++;
+                }
+                _lastPresentedFrame=Time.frameCount;
+            }
+            GUI.depth=depth;GUI.matrix=matrix;GUI.color=color;
+        }
     }
+    // Draw without an IMGUI control: mouse position cannot select a hover state.
+    static void PassiveLabel(Rect rect, string text, GUIStyle style)
+    {
+        if (Event.current.type == EventType.Repaint)
+            style.Draw(rect, new GUIContent(text), false, false, false, false);
+    }
+
+    void DrawLogo(Texture2D texture,Vector2 center,float width,float alpha)
+    {
+        if(texture==null||_logoMaterial==null||Event.current.type!=EventType.Repaint)return;
+        float height=width*texture.height/texture.width;
+        _logoMaterial.SetFloat("_Opacity",alpha);
+        Graphics.DrawTexture(new Rect(Mathf.Round(center.x-width/2),Mathf.Round(center.y-height/2),width,height),texture,_logoMaterial);
+    }
+    void OnDestroy() { IsOpen=false;RestoreLightingAndListeners();if(_logoMaterial!=null)Destroy(_logoMaterial); }
 }

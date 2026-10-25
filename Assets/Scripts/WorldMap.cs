@@ -23,6 +23,35 @@ public class WorldMap : MonoBehaviour
 
     OpenWorld _world;
     Transform _player;
+    bool _training;
+    VoxelTutorial _trainingState;
+    float MapSize => _training ? 64f : OpenWorld.Size;
+    Vector2 MapOrigin => _training ? new Vector2(-32, -12) : Vector2.zero;
+    static readonly Vector3[] TrainingPoints = {
+        new Vector3(0, 0, 2), new Vector3(0, 0, 12), new Vector3(0, 0, 22),
+        new Vector3(0, 0, 29), new Vector3(0, 0, 39)
+    };
+    static readonly string[] TrainingNames = { "训练入口", "跳跃矮栏", "训练木桩", "史诗补给箱", "前往原世界 · 出口" };
+
+    public void InitTraining(Transform player)
+    {
+        _training = true; _player = player; IsOpen = false;
+        _trainingState = FindObjectOfType<VoxelTutorial>();
+        var pixels = new Color32[TexSize * TexSize];
+        for (int y = 0; y < TexSize; y++) for (int x = 0; x < TexSize; x++)
+        {
+            float wx = MapOrigin.x + x * MapSize / TexSize, wz = MapOrigin.y + y * MapSize / TexSize;
+            Color c = new Color(0.15f, 0.23f, 0.28f);
+            if (Mathf.Abs(wx) <= 12 && wz >= -4 && wz <= 44) c = new Color(0.28f, 0.52f, 0.29f);
+            if (Mathf.Abs(wx) <= 2.5f && wz >= -2 && wz <= 42) c = new Color(0.7f, 0.65f, 0.5f);
+            if ((Mathf.Abs(Mathf.Abs(wx) - 12) < 0.5f && wz >= -4 && wz <= 44)
+                || (Mathf.Abs(wx) <= 12 && (Mathf.Abs(wz + 4) < 0.5f || Mathf.Abs(wz - 44) < 0.5f))) c = Color.gray;
+            pixels[y * TexSize + x] = c;
+        }
+        _map = new Texture2D(TexSize, TexSize, TextureFormat.RGBA32, false) { name = "TutorialMapTexture", wrapMode = TextureWrapMode.Clamp };
+        _map.SetPixels32(pixels); _map.Apply(false);
+        _ring = BuildRingTexture(256, 122f, 3.5f); _arrow = BuildArrowTexture(64);
+    }
 
     Texture2D _map;                 // 世界俯视图
     Texture2D _ring;                // 小地图圆环边框
@@ -76,6 +105,9 @@ public class WorldMap : MonoBehaviour
             Cursor.visible = false;
         }
         IsOpen = false;
+        if (_map != null) Destroy(_map);
+        if (_ring != null) Destroy(_ring);
+        if (_arrow != null) Destroy(_arrow);
     }
 
     void Update()
@@ -100,13 +132,13 @@ public class WorldMap : MonoBehaviour
         if (IsOpen)
         {
             // 键盘兜底：Tab 在已解锁的锚点之间循环、Enter 传送选中的那个（鼠标点不到图钉时用）
-            if (Input.GetKeyDown(KeyCode.Tab)) CycleSelection();
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) TeleportSelected();
+            if (!_training && Input.GetKeyDown(KeyCode.Tab)) CycleSelection();
+            if (!_training && (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))) TeleportSelected();
 
             // 滚轮缩放：视野跨度越小越近
             float wheel = Input.GetAxisRaw("Mouse ScrollWheel");
             if (Mathf.Abs(wheel) > 0.001f)
-                _viewMeters = Mathf.Clamp(_viewMeters * (1f - wheel * 0.6f), ViewMin, ViewMax);
+                _viewMeters = Mathf.Clamp(_viewMeters * (1f - wheel * 0.6f), _training ? 20f : ViewMin, _training ? 64f : ViewMax);
 
             // 按住左键拖动：把鼠标位移换算成世界米，拖着看别的区域
             if (Input.GetMouseButtonDown(0))
@@ -125,7 +157,7 @@ public class WorldMap : MonoBehaviour
             if (Input.GetMouseButtonUp(0))
             {
                 _dragging = false;
-                if (_dragMoved < 6f) TryClickAnchor();      // 基本没拖动 = 点了一下 → 试试点传送锚点
+                if (!_training && _dragMoved < 6f) TryClickAnchor();      // 基本没拖动 = 点了一下 → 试试点传送锚点
             }
 
             // 右键：视野拉回角色身上
@@ -152,7 +184,7 @@ public class WorldMap : MonoBehaviour
         if (IsOpen)
         {
             _openTime = Time.unscaledTime;
-            _viewMeters = 260f;
+            _viewMeters = _training ? 64f : 260f;
             _selIdx = -1;                                // 每次打开都从"没选中"开始，Tab 从第一个已解锁的算起
             CenterOnPlayer();                            // 打开时以角色为中心的一片区域
             _dragMouse = Input.mousePosition;
@@ -171,6 +203,7 @@ public class WorldMap : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_map == null) return;
         // 别的全屏面板（开幕动画 / 菜单 / 背包 / 角色 / 祈愿）开着时小地图也收起来；
         // 但"自己开着"要照画 —— 判断里必须把它排除掉
@@ -178,8 +211,12 @@ public class WorldMap : MonoBehaviour
         if (Event.current.type != EventType.Repaint) return;      // 每帧只画一次，别在事件阶段重复画
         EnsureStyles();
 
+        var minimapMatrix = GUI.matrix;
+        float minimapScale = Mathf.Clamp(Screen.height / 1080f, 0.68f, 1f);
+        GUI.matrix = Matrix4x4.Scale(Vector3.one * minimapScale) * minimapMatrix;
         DrawMinimap();
-        if (IsOpen) DrawBigMap();
+        GUI.matrix = minimapMatrix;
+        if (IsOpen) { if (_training) DrawTrainingBigMap(); else DrawBigMap(); }
 
         // 传送黑场：压在所有东西最上面 —— 必须画在这里而不是大地图里，
         // 因为传送的第一件事就是把大地图关掉（画在 DrawBigMap 里就永远看不见）
@@ -192,8 +229,8 @@ public class WorldMap : MonoBehaviour
     {
         float cx = MiniMargin + MiniR, cy = MiniMargin + MiniR;
 
-        float pxx = _player.position.x / OpenWorld.Size * TexSize;
-        float pxy = _player.position.z / OpenWorld.Size * TexSize;
+        float pxx = (_player.position.x - MapOrigin.x) / MapSize * TexSize;
+        float pxy = (_player.position.z - MapOrigin.y) / MapSize * TexSize;
         var src = new Rect(pxx - MiniSrcPx * 0.5f, pxy - MiniSrcPx * 0.5f, MiniSrcPx, MiniSrcPx);
 
         DrawCircleMap(new Rect(cx - MiniR, cy - MiniR, MiniR * 2f, MiniR * 2f), src);
@@ -201,9 +238,11 @@ public class WorldMap : MonoBehaviour
         // 圆环边框（略微画大一点，正好压在圆的边上）
         GUI.DrawTexture(new Rect(cx - MiniR - 5f, cy - MiniR - 5f, (MiniR + 5f) * 2f, (MiniR + 5f) * 2f), _ring);
 
-        float pxPerMeter = MiniR * 2f / (MiniSrcPx * OpenWorld.Size / TexSize);
+        float pxPerMeter = MiniR * 2f / (MiniSrcPx * MapSize / TexSize);
         float range = MiniR / pxPerMeter;
 
+        if (!_training)
+        {
         // 附近地标
         for (int i = 0; i < MondstadtTown.Markers.Count; i++)
         {
@@ -237,6 +276,14 @@ public class WorldMap : MonoBehaviour
             DrawPin(sp, new Color(1f, 0.92f, 0.55f), 10f);
         }
 
+        }
+        if (_training) for (int i = 0; i < TrainingPoints.Length; i++)
+        {
+            var p = TrainingPoints[i];
+            var point = MiniPoint(cx, cy, p.x, p.z, pxPerMeter);
+            if (InMiniDisc(point, cx, cy)) DrawPin(point, i == 4 ? Color.cyan : new Color(1, 0.8f, 0.3f), 9);
+        }
+
         // 玩家箭头（永远在正中间，按朝向旋转）
         DrawArrow(cx, cy, 26f, _player.eulerAngles.y, Color.white);
 
@@ -245,11 +292,41 @@ public class WorldMap : MonoBehaviour
 
         VoxelHud.FillRect(new Rect(cx - 92f, cy + MiniR + 8f, 184f, 24f), new Color(0f, 0f, 0f, 0.45f));
         VoxelHud.LabelShadow(new Rect(cx - 92f, cy + MiniR + 9f, 184f, 22f),
-                             RegionName(_player.position.x, _player.position.z), _small);
+                             _training ? "新手训练场" : RegionName(_player.position.x, _player.position.z), _small);
     }
 
     /// <summary>大地图：整张世界图 + 主要建筑的名字与位置 + 玩家位置 + 图例。
     /// 滚轮缩放、按住左键拖拽看别的区域、右键把视野拉回角色。</summary>
+    void DrawTrainingBigMap()
+    {
+        VoxelHud.FillRect(new Rect(0, 0, Screen.width, Screen.height), new Color(0.04f, 0.06f, 0.1f, 0.96f));
+        var panel = BigPanel();
+        float half = _viewMeters / 2;
+        _viewCenter.x = Mathf.Clamp(_viewCenter.x, MapOrigin.x + half, MapOrigin.x + MapSize - half);
+        _viewCenter.y = Mathf.Clamp(_viewCenter.y, MapOrigin.y + half, MapOrigin.y + MapSize - half);
+        _pxPerMeter = panel.width / _viewMeters;
+        GUI.DrawTextureWithTexCoords(panel, _map, new Rect(
+            (_viewCenter.x - half - MapOrigin.x) / MapSize, (_viewCenter.y - half - MapOrigin.y) / MapSize,
+            _viewMeters / MapSize, _viewMeters / MapSize));
+        for (int i = 0; i < TrainingPoints.Length; i++)
+        {
+            var p = TrainingPoints[i];
+            Vector2 point = MapPoint(panel, _pxPerMeter, p.x, p.z);
+            if (!panel.Contains(point)) continue;
+            DrawPin(point, i == 4 ? Color.cyan : new Color(1, 0.8f, 0.3f), 13);
+            string name = TrainingNames[i];
+            if (_trainingState != null && i == 3) name += _trainingState.TrainingChestOpened ? "（已开启）" : "（未开启）";
+            if (_trainingState != null && i == 4) name += _trainingState.ExitUnlocked ? "（已开放）" : "（未解锁）";
+            VoxelHud.LabelShadow(new Rect(point.x + 12, point.y - 10, 260, 24), name, _label);
+        }
+        Vector2 player = MapPoint(panel, _pxPerMeter, _player.position.x, _player.position.z);
+        if (panel.Contains(player)) { DrawCircleOutline(player, 18, Color.white); DrawArrow(player.x, player.y, 26, _player.eulerAngles.y, Color.white); }
+        VoxelHud.LabelShadow(new Rect(0, 8, Screen.width, 30), "新手训练场 · 地图", _title);
+        VoxelHud.LabelShadow(new Rect(0, 38, Screen.width, 24), $"当前位置 新手训练场    X {_player.position.x:0.0}  Z {_player.position.z:0.0}    视野 {_viewMeters:0} 米    北 ↑", _small);
+        VoxelHud.LabelShadow(new Rect(0, Screen.height - 54, Screen.width, 24), "白色箭头 = 玩家位置与朝向    金色 = 训练地点 / 补给箱    青色 = 原世界出口", _small);
+        VoxelHud.LabelShadow(new Rect(0, Screen.height - 30, Screen.width, 24), "按住左键拖拽 · 滚轮缩放 · 右键回到角色 · M / Esc 关闭", _hint);
+    }
+
     void DrawBigMap()
     {
         VoxelHud.FillRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.04f, 0.06f, 0.10f, 0.86f));
@@ -581,7 +658,11 @@ public class WorldMap : MonoBehaviour
     void DrawArrow(float cx, float cy, float size, float yaw, Color tint)
     {
         var m = GUI.matrix;
-        GUIUtility.RotateAroundPivot(yaw, new Vector2(cx, cy));   // GUI 的 y 轴朝下，正角度 = 顺时针，正好对应 yaw
+        // Rotate in map-local coordinates before the parent minimap scale.
+        // RotateAroundPivot mixes its pivot with the existing scaled GUI matrix.
+        GUI.matrix = m * Matrix4x4.Translate(new Vector3(cx, cy, 0f))
+            * Matrix4x4.Rotate(Quaternion.Euler(0f, 0f, yaw))
+            * Matrix4x4.Translate(new Vector3(-cx, -cy, 0f));
         Color old = GUI.color;
         GUI.color = tint;
         GUI.DrawTexture(new Rect(cx - size * 0.5f, cy - size * 0.5f, size, size), _arrow);
@@ -828,7 +909,7 @@ public class WorldMap : MonoBehaviour
             {
                 float d = Mathf.Sqrt((x + 0.5f - c) * (x + 0.5f - c) + (y + 0.5f - c) * (y + 0.5f - c));
                 float ring = Mathf.Clamp01(1f - Mathf.Abs(d - ringR) / thickness);   // 金色圆环
-                float vig = Mathf.Clamp01((d - ringR + 16f) / 16f) * 0.28f;          // 靠边压一点暗
+                float vig = d <= ringR ? Mathf.Clamp01((d - ringR + 16f) / 16f) * 0.28f : 0f;
                 byte a = (byte)(Mathf.Max(ring * 0.95f, vig) * 255f);
                 px[y * size + x] = new Color32(0xf2, 0xe2, 0xa8, a);
             }

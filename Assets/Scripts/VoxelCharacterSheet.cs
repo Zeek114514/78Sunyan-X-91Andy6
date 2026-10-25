@@ -259,6 +259,7 @@ public class VoxelCharacterSheet : MonoBehaviour
     readonly List<CharacterState> _roster = new List<CharacterState>();
 
     VoxelInteraction _inventory;
+    bool _training;
     CharacterState _active;
 
     const string KeyPrefix = "CodelyDemo.Char.";
@@ -277,6 +278,12 @@ public class VoxelCharacterSheet : MonoBehaviour
 
         Load();
         Rebuild();
+    }
+
+    public void InitTraining(VoxelInteraction inventory)
+    {
+        _training = true;
+        Init(inventory);
     }
 
     void OnDestroy()
@@ -300,12 +307,15 @@ public class VoxelCharacterSheet : MonoBehaviour
     /// 抽到的角色以名字记在物品栏的素材表里（见 VoxelGacha.Grant）</summary>
     public void Rebuild()
     {
+        var previous = _active;
         _roster.Clear();
 
         foreach (var info in VoxelCharacterData.Characters)
         {
             if (!_states.TryGetValue(info.Id, out var state)) continue;
-            if (info.Name != PlayerName && OwnedCount(info.Name) <= 0) continue;   // 没抽到就不列
+            bool localTest = info.Id == LocalRemielle.CharacterId && LocalRemielle.Available;
+            if (info.Id == LocalRemielle.CharacterId && !localTest) continue;
+            if (info.Name != PlayerName && !localTest && OwnedCount(info.Name) <= 0) continue;
 
             _roster.Add(state);
         }
@@ -316,6 +326,8 @@ public class VoxelCharacterSheet : MonoBehaviour
         // 出战角色：存档里存的是 id；读不到（比如那个角色这局没有）就退回主角
         _active = Find(VoxelCharacterData.CharacterById(PlayerPrefs.GetString(KeyActive, "")))
                   ?? (hero != null ? hero : (_roster.Count > 0 ? _roster[0] : null));
+        if (_active != null && !_roster.Contains(_active)) _active = hero;
+        if (previous != null && previous.Info.Id == LocalRemielle.CharacterId && _roster.Contains(previous)) _active = previous;
     }
 
     CharacterState Find(VoxelCharacterData.CharacterInfo info) =>
@@ -327,8 +339,11 @@ public class VoxelCharacterSheet : MonoBehaviour
         if (state == null || !_roster.Contains(state)) return;
 
         _active = state;
-        PlayerPrefs.SetString(KeyActive, state.Info.Id);
-        PlayerPrefs.Save();
+        if (!_training && state.Info.Id != LocalRemielle.CharacterId)
+        {
+            PlayerPrefs.SetString(KeyActive, state.Info.Id);
+            PlayerPrefs.Save();
+        }
     }
 
     /// <summary>这个人现在能装哪些武器（同类型 + 已经抽到的），高星在前</summary>
@@ -411,7 +426,7 @@ public class VoxelCharacterSheet : MonoBehaviour
 
     /// <summary>把某个角色的养成状态写回存档（升级 / 突破 / 换装备之后调用）</summary>
     public void Save(CharacterState state)
-    {        if (state == null) return;
+    {        if (_training || state == null || state.Info.Id == LocalRemielle.CharacterId) return;
 
         string key = KeyPrefix + state.Info.Id + ".";
         PlayerPrefs.SetInt(key + "Lv", state.Level);

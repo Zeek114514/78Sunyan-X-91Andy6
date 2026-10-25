@@ -249,32 +249,21 @@ public static partial class LiyueBuildings
     static void ChineseRoof(Vector3 c, float w, float d, float h, float lift, Quaternion rot,
                             Color tile, Color ridge)
     {
-        // ★ 每一坡就是一整块板（ThickQuad）：曾经把它切成三段去拼"檐口起翘"，
-        //   段与段之间必然露出台阶 —— 从屋檐底下往上看，就是一堆错开的黑板（实机里那种"飘着的黑屋顶"）。
-        //   现在：直檐 + 四角单独翘（lift 用来定四个翘角挑多高，檐线本身是直的）
-        const float thick = 0.34f;
+        const float thick = 0.18f;
         float hw = w * 0.5f, hd = d * 0.5f;
-
-        for (int sx = -1; sx <= 1; sx += 2)
+        const int bands = 8;
+        for (int side = -1; side <= 1; side += 2)
+        for (int band = 0; band < bands; band++)
         {
-            if (sx > 0)
-            {
-                // 右坡：从 +n 方向看是逆时针（法线朝上偏外）
-                ThickQuad(c + rot * new Vector3(0f, h, -hd),
-                          c + rot * new Vector3(0f, h, hd),
-                          c + rot * new Vector3(hw, lift, hd),
-                          c + rot * new Vector3(hw, lift, -hd),
-                          thick, tile, tile * 0.80f);
-            }
-            else
-            {
-                // 左坡：顶点顺序反过来，法线才朝外
-                ThickQuad(c + rot * new Vector3(-hw, lift, -hd),
-                          c + rot * new Vector3(-hw, lift, hd),
-                          c + rot * new Vector3(0f, h, hd),
-                          c + rot * new Vector3(0f, h, -hd),
-                          thick, tile, tile * 0.80f);
-            }
+            float t0 = band / (float)bands, t1 = (band + 1f) / bands;
+            float y0 = h * Mathf.Pow(1 - t0, 1.65f) + lift * Mathf.Pow(t0, 6);
+            float y1 = h * Mathf.Pow(1 - t1, 1.65f) + lift * Mathf.Pow(t1, 6);
+            Vector3 a = c + rot * new Vector3(side * hw * t0, y0, -hd);
+            Vector3 b = c + rot * new Vector3(side * hw * t0, y0, hd);
+            Vector3 e = c + rot * new Vector3(side * hw * t1, y1, hd);
+            Vector3 f = c + rot * new Vector3(side * hw * t1, y1, -hd);
+            if (side > 0) ThickQuad(a, b, e, f, thick, tile, tile * .8f);
+            else ThickQuad(f, e, b, a, thick, tile, tile * .8f);
         }
 
         // 屋脊 + 两端的脊头小兽
@@ -292,7 +281,7 @@ public static partial class LiyueBuildings
                               * Quaternion.Euler(0f, Mathf.Atan2(sx, sz) * Mathf.Rad2Deg, 0f)
                               * Quaternion.Euler(-34f, 0f, 0f);
                 Box(c + rot * new Vector3(sx * (hw - 0.25f), lift + 0.12f, sz * (hd - 0.25f)),
-                    new Vector3(0.24f, 0.24f, 1.05f), cornerRot, ridge, ridge);
+                    new Vector3(0.13f, 0.13f, 0.42f), cornerRot, ridge, ridge);
             }
         }
     }
@@ -308,7 +297,7 @@ public static partial class LiyueBuildings
 
         for (int i = 0; i < 3; i++)
         {
-            float s = 1.5f + i * 0.5f;
+            float s = radius * (3.0f + i * 1.1f);
             Box(basePos + Vector3.up * (0.44f + height + i * 0.16f), new Vector3(s, 0.14f, s), rot, bracket, bracket);
         }
     }
@@ -534,8 +523,12 @@ public static partial class LiyueBuildings
         // 中式屋顶（出檐 + 飞檐翘角）
         ChineseRoof(center + Vector3.up * (0.4f + wallH), w + 1.3f, d + 1.3f, w * 0.36f, 0.5f, rot, Tile, Ridge);
 
-        // 马头墙
-        HorseHeadWall(center, rot, w + 0.4f, d + 0.4f, 0.4f + wallH, WallWhite, TileDark);
+        // Eave beam and repeated brackets tie the curved roof to its timber frame.
+        Box(center + rot * new Vector3(0, wallH + .35f, 0), new Vector3(w + .35f, .24f, d + .35f), rot, WoodLight, Wood);
+        for (int side = -1; side <= 1; side += 2)
+        for (int bay = -1; bay <= 1; bay++)
+            Box(center + rot * new Vector3(bay * w * .33f, wallH + .25f, side * (d * .5f + .2f)),
+                new Vector3(.32f, .32f, .75f), rot, WoodLight, Wood);
 
         // 门（正面 +Z）：朱红门扇 + 门框
         Vector3 door = center + rot * new Vector3(0f, 0.4f + 0.9f, d * 0.5f + 0.04f);
@@ -549,7 +542,13 @@ public static partial class LiyueBuildings
         for (int s = -1; s <= 1; s += 2)
         {
             Box(center + rot * new Vector3(s * w * 0.28f, wy, d * 0.5f + 0.04f),
-                new Vector3(0.7f, 0.75f, 0.1f), rot, Wood, WoodLight);
+                new Vector3(1.1f, 1.1f, 0.1f), rot, Wood, Wood);
+            for (int bar = -1; bar <= 1; bar++)
+            {
+                Box(center + rot * new Vector3(s * w * .28f + bar * .3f, wy, d * .5f + .11f), new Vector3(.055f, 1.08f, .07f), rot, Gold, WoodLight);
+                Box(center + rot * new Vector3(s * w * .28f, wy + bar * .3f, d * .5f + .11f), new Vector3(1.08f, .055f, .07f), rot, Gold, WoodLight);
+            }
+            Box(center + rot * new Vector3(s * w * .28f, wy - .62f, d * .5f + .15f), new Vector3(1.28f, .14f, .36f), rot, WoodLight, Wood);
         }
 
         // 檐下两盏灯笼

@@ -64,6 +64,7 @@ public class VoxelChat : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         // 全屏面板占满屏幕时，聊天日志先收起来
         if (VoxelPanels.ModalOpen) return;
 

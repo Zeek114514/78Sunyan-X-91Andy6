@@ -52,7 +52,7 @@ public class VoxelStats : MonoBehaviour
         SyncMaxHealth();
 
         // 开始面板 / 对话框打开时视为暂停：不消耗也不回复
-        if (_player == null || Cursor.lockState != CursorLockMode.Locked) return;
+        if (_player == null || !VoxelPanels.CanUseInput) return;
 
         float drain = HungerPerSecond;
         if (_player.IsSprinting) drain += SprintCost;

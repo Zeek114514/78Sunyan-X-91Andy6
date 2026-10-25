@@ -101,6 +101,8 @@ public class VoxelInteraction : MonoBehaviour
     /// <summary>把选中格里的道具丢到面前（Q 键）：原石和纠缠之缘都能丢</summary>
     void DropSelected()
     {
+        // The isolated training map has no OpenWorld terrain for dropped gems.
+        if (_world == null) return;
         if (Cursor.lockState != CursorLockMode.Locked) return;
 
         byte item = Palette[_selected];

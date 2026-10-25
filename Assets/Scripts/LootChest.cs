@@ -171,10 +171,10 @@ public class LootChest : MonoBehaviour
         BuildVisual();
 
         // 箱子挡人：给个粗略的盒碰撞（不用模型自带的碎网格，免得卡住脚下）
-        var box = Configs[(int)tier].box;
         var col = gameObject.AddComponent<BoxCollider>();
-        col.size   = new Vector3(box.x, box.y * 1.45f + SlabHeight, box.z);
-        col.center = new Vector3(0f, col.size.y * 0.5f, 0f);
+        Bounds visualBounds = VisualBounds(_modelRoot, transform);
+        col.size = visualBounds.size;
+        col.center = visualBounds.center;
     }
 
     void OnEnable()  => All.Add(this);
@@ -308,7 +308,7 @@ public class LootChest : MonoBehaviour
         VoxelAudio.PlaySfxAt("coin", transform.position + Vector3.up * 0.6f, 1f);
         VoxelAudio.PlaySfxAt("heal", transform.position + Vector3.up * 0.8f, 0.6f, 1.05f);
 
-        DimChest();
+        OpenVisual(_modelRoot);
         StartCoroutine(PlayFx(NewFx(true, new Color32(0xff, 0xe2, 0x8a, 0xff), 1.7f, 0.8f),
                               NewFx(false, new Color32(0xff, 0xd0, 0x6a, 0xff), SlabHeight + 0.06f, 1.2f),
                               true));
@@ -329,24 +329,6 @@ public class LootChest : MonoBehaviour
         StartCoroutine(PlayFx(NewFx(true, new Color32(0xc8, 0xa8, 0xff, 0xff), 1.5f, 0.8f),
                               NewFx(false, new Color32(0xb9, 0x8c, 0xff, 0xff), 0.09f, 1.2f),
                               false));
-    }
-
-    /// <summary>开过的箱子压暗一点，一眼能看出"这个已经开过了"</summary>
-    void DimChest()
-    {
-        var dim = new Color(0.58f, 0.56f, 0.53f, 1f);
-
-        foreach (var r in GetComponentsInChildren<Renderer>())
-        {
-            var src = r.sharedMaterial;
-            if (src == null) continue;
-
-            var mat = new Material(src);            // 每个箱子一份，染暗不会波及同品质的其它箱子
-            if (mat.HasProperty("_BaseColor"))      mat.SetColor("_BaseColor", src.GetColor("_BaseColor") * dim);
-            else if (mat.HasProperty("_Color"))     mat.SetColor("_Color", src.GetColor("_Color") * dim);
-            else if (mat.HasProperty("_Tint"))      mat.SetColor("_Tint", new Color(dim.r, dim.g, dim.b, 1f));
-            r.sharedMaterial = mat;
-        }
     }
 
     /// <summary>造一个光效件：竖直的是光柱（往上抽），压扁的是光环（往外扩）</summary>
@@ -438,25 +420,56 @@ public class LootChest : MonoBehaviour
     /// <summary>宝箱本体：有 AI 模型用模型，没有就用代码拼的低模</summary>
     void BuildVisual()
     {
+        _modelRoot = CreateVisual(transform, tier, _material);
+    }
+
+    /// <summary>Reuse the same normalized model and materials without world loot or guard logic.</summary>
+    public static Transform CreateVisual(Transform parent, Tier tier, Material fallbackMaterial)
+    {
         var template = Template(tier);
 
         if (template != null)
         {
-            var model = Instantiate(template, transform);
+            var model = Instantiate(template, parent);
             model.name = "Model";
             model.transform.localPosition = Vector3.zero;
             model.transform.localRotation = Quaternion.identity;
             model.transform.localScale = Vector3.one;
             model.SetActive(true);
-            _modelRoot = model.transform;
-            return;
+            return model.transform;
         }
 
         var go = new GameObject("Model");
-        go.transform.SetParent(transform, false);
+        go.transform.SetParent(parent, false);
         go.AddComponent<MeshFilter>().sharedMesh = FallbackMesh(tier);
-        go.AddComponent<MeshRenderer>().sharedMaterial = _material;
-        _modelRoot = go.transform;
+        go.AddComponent<MeshRenderer>().sharedMaterial = fallbackMaterial;
+        return go.transform;
+    }
+
+    public static void OpenVisual(Transform model)
+    {
+        if (model == null) return;
+        var opening = model.GetComponent<VoxelChestOpening>();
+        if (opening == null) opening = model.gameObject.AddComponent<VoxelChestOpening>();
+        opening.Open();
+    }
+
+    public static Bounds VisualBounds(Transform visual, Transform space)
+    {
+        var bounds = new Bounds();
+        bool first = true;
+        foreach (var filter in visual.GetComponentsInChildren<MeshFilter>())
+        {
+            if (filter.sharedMesh == null) continue;
+            Bounds local = filter.sharedMesh.bounds;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 p = local.center + Vector3.Scale(local.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
+                p = space.InverseTransformPoint(filter.transform.TransformPoint(p));
+                if (first) { bounds = new Bounds(p, Vector3.zero); first = false; } else bounds.Encapsulate(p);
+            }
+        }
+        return bounds;
     }
 
     /// <summary>取（第一次会构建）某个品质的模型模板：归一化尺寸 + 材质换成 URP/Lit。
@@ -486,7 +499,7 @@ public class LootChest : MonoBehaviour
         var model = Instantiate(prefab, root.transform);
         model.name = "Model";
         model.transform.localPosition = Vector3.zero;
-        model.transform.localRotation = Quaternion.identity;
+        // Preserve the FBX axis conversion (these meshes import with a -90 degree X rotation).
         model.transform.localScale = Vector3.one;
 
         var renderers = root.GetComponentsInChildren<Renderer>();
@@ -651,6 +664,7 @@ public class LootChest : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_opened || _player == null || !CanUseInput()) return;
 
         var cam = Camera.main;

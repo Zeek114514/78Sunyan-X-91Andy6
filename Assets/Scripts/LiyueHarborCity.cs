@@ -389,7 +389,16 @@ public static partial class LiyueBuildings
         // 会露出"台子悬在半空"的底边，玩家绕着城走一圈就看见
         float yGround = LiyueHarbor.QuayY - 0.6f;
         Box(P(0f, seaC, (yTop + yGround) * 0.5f), new Vector3(len, yTop - yGround, deep), rot,
-            Limestone, LimestoneDark);
+            new Color(.64f, .62f, .56f), LimestoneDark);
+
+        // Inlaid paving gives each street a pedestrian axis and a readable scale.
+        for (float u = -len * .5f + 2f; u < len * .5f - 1f; u += 3f)
+        {
+            Box(P(u, seaB - 6.7f, yTop + .025f), new Vector3(2.86f, .045f, 2.7f), rot,
+                new Color(.68f, .66f, .59f), LimestoneDark);
+            if (!NearStairCorridor(u))
+                Box(P(u, seaB - 8.25f, yTop + .03f), new Vector3(2.86f, .05f, .12f), rot, Gold * .8f, LimestoneDark);
+        }
 
         // 挡土墙：从地面往上三级内收（一整面 8 米高的平墙看着像块巨石）
         float yBottom = LiyueHarbor.QuayY - 0.6f;
@@ -412,17 +421,15 @@ public static partial class LiyueBuildings
 
         // 临街民居：沿街一排，都朝海。★ 间距按 16 米（原来 20 米）、空段概率 0.15（原来 0.28）——
         //   一层台面只有 18~22 米进深，一排房子排稀了整条街就空
-        int houses = Mathf.Max(2, Mathf.RoundToInt(len / 16f));
-        for (int i = 0; i < houses; i++)
+        // Deliberate frontage lots: a stair and sightline always separates the clusters.
+        float[] lots = { -34f, -17f, 17f, 34f };
+        for (int i = 0; i < lots.Length; i++)
         {
-            float u = -len * 0.5f + 12f + (len - 24f) * i / (houses - 1f);
-            if (NearStairCorridor(u)) continue;              // 三条上下台阶的走廊要留出来
-            if (H(seed, i, 41) < 0.15f) continue;            // 偶尔空一段，别像队列
-            float w = 6.0f + H(seed, i, 42) * 2.0f;
-            var houseAt = P(u, seaA + 4.6f, yTop);
-            // 半径要把出檐（w+1.3）和马头墙也算进去，不然自检看不出一栋房子压到隔壁的檐
-            if (!Prop("临街民居", houseAt, w * 0.5f + 1.1f, 6.5f)) continue;
-            LiyueHouse(houseAt, HarborYaw(), w, 5.0f, 3.1f, seed * 37 + i);
+            float u = lots[i];
+            HarborPremise type = lv == 0 ? HarborPremise.Warehouse
+                : lv == 1 ? (i % 2 == 0 ? HarborPremise.Shop : HarborPremise.Teahouse)
+                : (i % 2 == 0 ? HarborPremise.Residence : HarborPremise.Guild);
+            HarborPremiseAt(u, seaA + 5.2f + (i % 2) * .8f, yTop, HarborYaw(), type, seed + i);
         }
 
         // 街边石灯：临海那一条靠近台面两端各一盏（中间那段留给摊子和灯笼串，摆中间会撞上）
@@ -434,10 +441,10 @@ public static partial class LiyueBuildings
             HarborStoneLamp(lampAt, HarborYaw() + 180f);
         }
 
-        // 摊子 + 旗子 + 灯笼串（街道才像有人气）
-        for (int i = 0; i < 3; i++)
+        // Market vendors belong to the lower commercial street.
+        for (int i = 0; i < (lv == 1 ? 2 : 0); i++)
         {
-            float u = -len * 0.5f + 22f + (len - 44f) * i / 2f;
+            float u = -len * 0.5f + 22f + (len - 44f) * i;
             if (NearStairCorridor(u)) continue;
             var stallAt = P(u, seaB - 4.5f, yTop);
             if (!Prop("摊子", stallAt, 2.2f, 3.6f)) continue;
@@ -473,39 +480,14 @@ public static partial class LiyueBuildings
     /// </summary>
     static void HarborUpperTown()
     {
-        // 一排民居：sea = 向海位置，a0 = 起点沿街位置，n = 栋数，step = 间距，yawOff = 朝向偏移
-        void Row(int tag, float sea, float a0, int n, float step, float yawOff)
-        {
-            for (int i = 0; i < n; i++)
-            {
-                float a = a0 + i * step;
-                if (Mathf.Abs(a) < 9f) continue;                 // 中轴（上城入口那条）留出来
-                if (Mathf.Abs(a) > 82f) continue;                // 台面端头留一圈空地
-
-                float w = 5.6f + H(tag, i, 71) * 1.6f;
-                float d = 4.4f + H(tag, i, 72) * 0.9f;
-                float yaw = HarborYaw() + yawOff + (H(tag, i, 73) - 0.5f) * 10f;
-                var at = P(a, sea, Deck3);
-
-                if (!Prop("上城民居", at, w * 0.5f + 1.1f, 7f)) continue;
-                LiyueHouse(at, yaw, w, d, 3.0f + H(tag, i, 74) * 0.6f, tag * 91 + i);
-            }
-        }
-
-        // 内城两条（广场内陆侧那一大片）
-        Row(1, Sea3A + 16f,   -66f,   10, 15f, 0f);
-        Row(2, Sea3A + 28.5f, -58.5f,  9, 15f, 0f);
-
-        // 临海那一条（广场临海侧和台面外沿之间）
-        Row(3, Sea3B - 17f,   -70f,   10, 15f, 0f);
-
-        // 广场东侧两列（面向广场）
-        Row(4, -16f, 24f, 4, 15f, -90f);
-        Row(5, -44f, 24f, 4, 15f, -90f);
-
-        // 广场西侧一列（钟楼占着 a≈-62 / s≈-52 那块，所以只排得下两栋）
-        Row(6, -20f, -80f, 2, 11f, 90f);
-        Row(7, -46f, -80f, 2, 11f, 90f);
+        // Upper town is a quiet courtyard district, not another grid of cottages.
+        HarborPremiseAt(-58, -79, Deck3, HarborYaw(), HarborPremise.Guild, 90);
+        HarborPremiseAt(-33, -80, Deck3, HarborYaw(), HarborPremise.Residence, 91);
+        HarborPremiseAt(24, -77, Deck3, HarborYaw(), HarborPremise.Teahouse, 92);
+        HarborPremiseAt(55, -74, Deck3, HarborYaw() - 90, HarborPremise.Residence, 93);
+        HarborPremiseAt(57, -43, Deck3, HarborYaw() - 90, HarborPremise.Shop, 94);
+        HarborPremiseAt(56, -15, Deck3, HarborYaw() - 90, HarborPremise.Guild, 95);
+        HarborPremiseAt(-76, -17, Deck3, HarborYaw() + 90, HarborPremise.Teahouse, 96);
 
         // ---------- 街边石灯：沿临海那一条每隔一段一盏 ----------
         for (int i = 0; i < 5; i++)
@@ -593,7 +575,7 @@ public static partial class LiyueBuildings
         var rot = HarborRot();
         const float u = PlazaU, sea = PlazaSea;
 
-        Box(P(u, sea, Deck3 + 0.28f), new Vector3(74f, 0.56f, 56f), rot, Limestone, LimestoneDark);   // 铺地
+        Box(P(u, sea, Deck3 + 0.28f), new Vector3(74f, 0.56f, 56f), rot, new Color(.69f, .67f, .60f), LimestoneDark);   // 铺地
         Disc(P(u, sea, Deck3 + 0.6f), 7.5f, 9.5f, 16, rot, LimestoneDark);                            // 中心圆坛
 
         var shrineAt = P(u, sea, Deck3 + 0.58f);                                                      // 岩神像
@@ -617,9 +599,9 @@ public static partial class LiyueBuildings
         HarborLanterns(P(u + 8f, sea + 20f, Deck3 + 5.4f), P(u + 30f, sea + 20f, Deck3 + 5.4f), 6);
 
         // ---------- 集市：铺地临海那侧摆一排摊子（74 × 56 米的广场，只有神像和四盏石灯太空） ----------
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 2; i++)
         {
-            var at = P(u - 26f + i * 16f, sea + 25f, Deck3 + 0.56f);        // 站在铺地上（高 0.56）
+            var at = P(u - 26f + i * 52f, sea + 25f, Deck3 + 0.56f);        // 站在铺地上（高 0.56）
             if (!Prop("集市摊子", at, 2.2f, 3.6f)) continue;
             HarborStall(at, HarborYaw());
         }
@@ -785,6 +767,108 @@ public static partial class LiyueBuildings
         HarborStoneLamp(at, HarborYaw() + 180f, flame);
     }
 
+    enum HarborPremise { Warehouse, Shop, Teahouse, Residence, Guild }
+
+    // Purpose-built silhouettes share construction details, rather than sharing one house mesh.
+    static void HarborPremiseAt(float along, float sea, float y, float yaw, HarborPremise type, int seed)
+    {
+        bool warehouse = type == HarborPremise.Warehouse;
+        bool tea = type == HarborPremise.Teahouse;
+        bool guild = type == HarborPremise.Guild;
+        bool home = type == HarborPremise.Residence;
+        float w = warehouse ? 11f : guild ? 12f : tea ? 10f : home ? 7.8f : 9f;
+        float d = warehouse ? 6.6f : tea ? 7f : 6f;
+        float h = warehouse ? 3.8f : home ? 5.5f : guild ? 6.7f : tea ? 6f : 4.6f;
+        var at = P(along, sea, y);
+        // Bounds include the veranda, roof and all facade goods, even for side-facing lots.
+        float radius = Mathf.Sqrt((w + 2) * (w + 2) + (d + 3) * (d + 3)) * .5f;
+        string name = warehouse ? "港务货栈" : tea ? "临海茶楼" : guild ? "商会会馆" : home ? "庭院住宅" : "沿街商铺";
+        float relativeYaw = (yaw - HarborYaw()) * Mathf.Deg2Rad;
+        float ca = Mathf.Abs(Mathf.Cos(relativeYaw)), sa = Mathf.Abs(Mathf.Sin(relativeYaw));
+        float ra = ca * (w * .5f + 1f) + sa * (d * .5f + 1.8f);
+        float rs = sa * (w * .5f + 1f) + ca * (d * .5f + 1.8f);
+        if (!PropBox(name, at, ra, rs, h + 3.4f, AnchorDeck)) return;
+        var rot = Quaternion.Euler(0, yaw, 0);
+        Vector3 Q(float x, float height, float z) => at + rot * new Vector3(x, height, z);
+        void Block(float x, float height, float z, float sx, float sy, float sz, Color color)
+            => Box(Q(x, height, z), new Vector3(sx, sy, sz), rot, color, color * .88f);
+
+        Color plaster = home ? WallWhite : guild ? new Color(.79f, .66f, .48f) : new Color(.86f, .78f, .61f);
+        Color timber = warehouse ? Wood : new Color(.38f, .18f, .12f);
+        Color roof = warehouse ? Tile : new Color(.18f, .32f, .33f);
+        Block(0, .18f, 0, w + .55f, .36f, d + .55f, LimestoneDark);
+        Block(0, h * .5f + .36f, 0, w, h, d, plaster);
+        // The ridge runs along the street frontage, with shallow eaves instead of a towering wedge.
+        ChineseRoof(Q(0, h + .36f, 0), d + 1.8f, w + 1.8f, d * .28f, .23f,
+            rot * Quaternion.Euler(0, 90, 0), roof, Ridge);
+        for (int i = -1; i <= 1; i++)
+        {
+            Block(i * (w * .5f - .12f), h * .5f + .36f, d * .5f + .03f, .22f, h, .24f, timber);
+            if (i != 0) Block(i * (w * .5f - .12f), h * .5f + .36f, -d * .5f, .22f, h, .24f, timber);
+        }
+        Block(0, .68f, d * .5f + .08f, w, .35f, .16f, timber);
+        Block(0, 3.05f, d * .5f + .08f, w, .22f, .22f, timber);
+        Block(0, 1.55f, d * .5f + .09f, warehouse ? 3.4f : 1.45f, 2.35f, .16f, Wood);
+        Block(0, 1.55f, d * .5f + .19f, .06f, 2.25f, .05f, Gold);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Window(side * w * .3f, 1.95f, warehouse ? .9f : 1.6f, 1.35f);
+            if (h > 5) Window(side * w * .3f, 4.55f, 1.45f, 1.45f);
+        }
+        void Window(float x, float height, float ww, float wh)
+        {
+            Block(x, height, d * .5f + .12f, ww, wh, .12f, new Color(.22f, .27f, .25f));
+            for (int bar = -1; bar <= 1; bar++)
+            {
+                Block(x + bar * ww * .34f, height, d * .5f + .2f, .065f, wh, .07f, WoodLight);
+                Block(x, height + bar * wh * .34f, d * .5f + .2f, ww, .065f, .07f, WoodLight);
+            }
+        }
+
+        if (!warehouse && !home)
+        {
+            // A supported street canopy and a signboard make the entrance legible.
+            ChineseRoof(Q(0, 2.85f, d * .5f + .5f), 2f, w + .5f, .5f, .1f,
+                rot * Quaternion.Euler(0, 90, 0), roof, Ridge);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Cyl(Q(side * (w * .5f - .45f), 0, d * .5f + .85f), 2.9f, .12f, .12f, 8, timber, true);
+                Lantern(Q(side * w * .33f, 2.85f, d * .5f + .8f), .26f, LanternRed, Gold);
+            }
+            Block(0, 2.6f, d * .5f + .26f, 2.3f, .44f, .12f, Wood);
+            Block(0, 2.6f, d * .5f + .34f, 1.95f, .06f, .035f, Gold);
+        }
+        if (tea || guild)
+        {
+            Block(0, 3.45f, d * .5f + .45f, w - .4f, .18f, 1.1f, WoodLight);
+            for (int post = -3; post <= 3; post++)
+                Block(post * (w - 1) / 6, 3.98f, d * .5f + .95f, .09f, 1f, .09f, timber);
+            Block(0, 4.48f, d * .5f + .95f, w - .4f, .12f, .14f, WoodLight);
+            if (guild)
+                ChineseRoof(Q(0, h + 1.15f, 0), 3.8f, 5.4f, 1.05f, .16f,
+                    rot * Quaternion.Euler(0, 90, 0), roof, Ridge);
+        }
+        if (warehouse)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                float x = -w * .5f + 1.1f + i * 1.25f;
+                Block(x, .65f, d * .5f + .8f, 1f, 1.3f, .9f, WoodLight);
+                Block(x, .65f, d * .5f + 1.27f, .12f, 1.3f, .05f, Wood);
+                Block(x, 1.05f, d * .5f + 1.27f, 1f, .08f, .05f, Wood);
+            }
+        }
+        if (home)
+        {
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Cyl(Q(side * (w * .5f - .45f), 0, d * .5f + .65f), .55f, .32f, .43f, 8, LimestoneDark, true);
+                Ball(Q(side * (w * .5f - .45f), .95f, d * .5f + .65f), .6f, Bamboo, 7, .8f, seed);
+            }
+        }
+        Houses.Add(new Vector4(at.x, at.z, radius, seed));
+    }
+
     // ================= 小零件 =================
 
     /// <summary>石灯：须弥座 + 石柱 + 灯室 + 小屋顶（中式路灯）</summary>
@@ -805,11 +889,20 @@ public static partial class LiyueBuildings
     {
         var rot = Quaternion.Euler(0f, yaw, 0f);
 
-        Box(pos + Vector3.up * 0.6f, new Vector3(3.2f, 0.16f, 1.8f), rot, WoodLight, Wood);
-        for (int i = -1; i <= 1; i += 2)
-            Cyl(pos + rot * new Vector3(i * 1.4f, 0f, 0.7f), 1.2f, 0.09f, 0.08f, 5, Bamboo);
-        ChineseRoof(pos + Vector3.up * 2.3f, 4.2f, 2.8f, 1.0f, 0.35f, rot, Tile, Ridge);
-        Lantern(pos + rot * new Vector3(1.2f, 2.6f, -1.0f), 0.32f, LanternRed, Gold);
+        Box(pos + Vector3.up * .85f, new Vector3(3.2f, .16f, 1.8f), rot, WoodLight, Wood);
+        for (int x = -1; x <= 1; x += 2)
+        for (int z = -1; z <= 1; z += 2)
+            Cyl(pos + rot * new Vector3(x * 1.4f, 0, z * .7f), 2.4f, .08f, .08f, 6, Wood);
+        ThickQuad(pos + rot * new Vector3(-1.7f, 2.5f, -1), pos + rot * new Vector3(-1.7f, 2.25f, 1.1f),
+            pos + rot * new Vector3(1.7f, 2.25f, 1.1f), pos + rot * new Vector3(1.7f, 2.5f, -1), .05f, Cloth, WoodLight);
+        for (int i = -1; i <= 1; i++)
+        {
+            Box(pos + rot * new Vector3(i * .88f, 1.05f, 0), new Vector3(.72f, .24f, 1.1f), rot, Wood, Wood);
+            for (int j = 0; j < 3; j++)
+                Ball(pos + rot * new Vector3(i * .88f + (j - 1) * .18f, 1.25f, .15f), .13f,
+                    i == 0 ? new Color(.84f, .53f, .12f) : new Color(.62f, .23f, .12f), 6);
+        }
+        Lantern(pos + rot * new Vector3(1.2f, 2.4f, .7f), .25f, LanternRed, Gold);
     }
 
     /// <summary>旗子：木杆 + 一面布 + 杆顶金球（码头和广场都是红布，风一吹就是港口的样子）</summary>

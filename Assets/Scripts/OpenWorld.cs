@@ -177,6 +177,7 @@ public class OpenWorld : MonoBehaviour
     Material _stoneMaterial;            // 城的墙体：顶点色 × 石墙贴图（Voxel/TexUnlit）
     Material _roofMaterial;             // 城的屋顶：顶点色 × 瓦片贴图（Voxel/TexUnlit）
     Material _waterMaterial;
+    WorldArtDetails _artDetails;
     readonly List<Vector3> _verts = new List<Vector3>();
     readonly List<Color>   _cols  = new List<Color>();
     readonly List<int>     _tris  = new List<int>();
@@ -683,10 +684,11 @@ public class OpenWorld : MonoBehaviour
         _terrainMaterial.SetTexture("_RockMap",  Resources.Load<Texture2D>("MatStoneWall"));
         _terrainMaterial.SetTexture("_SandMap",  Resources.Load<Texture2D>("MatSand"));
 
-        // 二次元风的贴图权重：贴图只留很轻的颗粒感（0.10），画面基本是顶点色的平涂色块
+        // Painterly surface detail, with soft directional lighting in the terrain shader.
         _terrainMaterial.SetFloat("_TexScale", 0.35f);
-        _terrainMaterial.SetFloat("_TexGain",  1.12f);
-        _terrainMaterial.SetFloat("_Detail",   0.10f);
+        _terrainMaterial.SetFloat("_TexGain",  1.06f);
+        _terrainMaterial.SetFloat("_Detail",   0.28f);
+        _terrainMaterial.SetFloat("_PaintStrength", 0.85f);
 
         // 城的墙体 / 屋顶：顶点色 × 单张贴图（石墙、瓦片）
         var texShader = Resources.Load<Shader>("Shaders/TexUnlit");
@@ -694,9 +696,13 @@ public class OpenWorld : MonoBehaviour
 
         _stoneMaterial = new Material(texShader) { name = "TownStoneMaterial" };
         _stoneMaterial.SetTexture("_MainMap", Resources.Load<Texture2D>("MatStoneWall"));
+        _stoneMaterial.SetFloat("_TexGain", 1.2f);
+        _stoneMaterial.SetFloat("_TexScale", 0.45f);
 
         _roofMaterial = new Material(texShader) { name = "TownRoofMaterial" };
         _roofMaterial.SetTexture("_MainMap", Resources.Load<Texture2D>("MatRoofTile"));
+        _roofMaterial.SetFloat("_TexGain", 1.25f);
+        _roofMaterial.SetFloat("_TexScale", 0.55f);
 
         var waterShader = Resources.Load<Shader>("Shaders/VoxelWater");
         if (waterShader == null) waterShader = Shader.Find("Voxel/Water");
@@ -710,9 +716,11 @@ public class OpenWorld : MonoBehaviour
         AddKeepOut(LiyueHarbor.HarborX, LiyueHarbor.HarborZ, LiyueHarbor.QuayR + 12f);
 
         BuildProps();
-        VoxelGrass.Build(transform, _material);     // 草地细节层：和树石一样在生成期烘进分块网格
+        var art = _artDetails = gameObject.AddComponent<WorldArtDetails>();
+        VoxelGrass.Build(transform, art.CreateGrassMaterial(_material));
         BuildSnowLandmarks();
         BuildTown();
+        art.BuildMeadowAccents(this);
         BuildWater();
         SetupPostProcessing();
         TryApplySkybox();
@@ -720,6 +728,7 @@ public class OpenWorld : MonoBehaviour
 
     public void SetFog(Color color, float start, float end)
     {
+        if (_artDetails != null) _artDetails.SetFog(color,start,end);
         if (_material != null)
         {
             _material.SetColor("_FogColor", color);
@@ -1348,6 +1357,15 @@ public class OpenWorld : MonoBehaviour
 
         AppendPrism(new Vector3(x, y, z), height, trunkR, trunkR * 0.62f, 6,
                     new Color32(0x8a, 0x63, 0x42, 255));
+
+        for(int branch=0;branch<3;branch++)
+        {
+            float angle=seed*6.28f+branch*2.094f;
+            Vector3 direction=new Vector3(Mathf.Cos(angle)*0.8f,1.3f,Mathf.Sin(angle)*0.8f);
+            Vector3 root=new Vector3(x,y+height*0.56f,z);
+            AppendBox(root+direction*0.5f,new Vector3(0.15f,direction.magnitude,0.15f),
+                Quaternion.FromToRotation(Vector3.up,direction),new Color32(0x8a,0x63,0x42,255),new Color32(0x70,0x50,0x38,255));
+        }
 
         Color leaf = cherry ? new Color32(0xf6, 0xa8, 0xc8, 255) : new Color32(0x5b, 0xb2, 0x4c, 255);
         float canopyR = cherry ? 2.0f : 2.6f;

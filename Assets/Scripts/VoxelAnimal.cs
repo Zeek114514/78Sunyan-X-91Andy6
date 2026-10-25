@@ -1028,6 +1028,7 @@ public class VoxelAnimal : MonoBehaviour
     /// </summary>
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_labelTop == null || _camera == null) return;
         if (_state == State.Dead || _labelTimer <= 0f) return;
         if (Cursor.lockState != CursorLockMode.Locked) return;

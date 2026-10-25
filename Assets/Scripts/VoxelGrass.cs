@@ -72,7 +72,9 @@ public static class VoxelGrass
             var go = new GameObject($"Grass_{tx}_{tz}");
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = material;
+            var renderer = go.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
 
         Debug.Log($"[VoxelGrass] 草地细节层完成：{tufts} 丛 / {blades} 片（格距 {Step * OpenWorld.Cell:0.#} 米）。");
@@ -135,7 +137,7 @@ public static class VoxelGrass
         Vector3 side = new Vector3(-Mathf.Sin(yaw), 0f, Mathf.Cos(yaw)) * (width * 0.5f);
         Vector3 lean = new Vector3(Mathf.Sin(yaw), 0f, Mathf.Cos(yaw)) * (height * 0.18f);   // 微微外倾
 
-        Color r = root * tint; r.a = 1f;
+        Color r = root * tint; r.a = 0f; // Wind anchor: roots never move.
         Color t = tip  * tint; t.a = 1f;
 
         int b = _verts.Count;
