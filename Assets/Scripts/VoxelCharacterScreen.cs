@@ -154,6 +154,7 @@ public class VoxelCharacterScreen : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (!IsOpen) return;
 
         Layout();
@@ -279,10 +280,11 @@ public class VoxelCharacterScreen : MonoBehaviour
         VoxelHud.LabelShadow(new Rect(box.xMax + 8f, row.y + 27f, row.width - 96f, 20f),
                              $"Lv.{state.Level}　{info.Element}", _small);
 
-        if (!active) return;
-
-        _tag.normal.textColor = Gold;
-        VoxelHud.LabelShadow(new Rect(row.xMax - 46f, row.y + 16f, 42f, 20f), "出战", _tag);
+        if (active)
+        {
+            _tag.normal.textColor = Gold;
+            VoxelHud.LabelShadow(new Rect(row.xMax - 46f, row.y + 16f, 42f, 20f), "出战", _tag);
+        }
 
         if (!hot || Event.current.type != EventType.MouseUp || Event.current.button != 0) return;
 
@@ -315,7 +317,12 @@ public class VoxelCharacterScreen : MonoBehaviour
         Frame(art, new Color(tint.r, tint.g, tint.b, 0.75f), 2f);
 
         var icon = IconOf(info.Name);
-        if (icon != null)
+        if (info.Id == LocalRemielle.CharacterId && LocalRemielle.DrawPreview(art))
+        {
+            _small.normal.textColor = TextDim;
+            VoxelHud.LabelShadow(new Rect(art.x + 5, art.yMax - 20, art.width - 10, 18), "拖动旋转 · 本地模型预览", _small);
+        }
+        else if (icon != null)
         {
             GUI.DrawTexture(new Rect(art.center.x - 62f, art.y + 13f, 124f, 120f), icon, ScaleMode.ScaleToFit);
         }

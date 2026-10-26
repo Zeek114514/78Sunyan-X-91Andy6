@@ -201,6 +201,19 @@ public static class VoxelCharacterData
             Set2Stat = Stat.HpPercent, Set2Value = 0.20f, Set4Stat = Stat.CritRate, Set4Value = 0.12f,
             ElementColor = new Color(0.58f, 0.86f, 0.47f),
         },
+        // Local model evaluation, available only when its separately downloaded asset exists.
+        new CharacterInfo
+        {
+            Id = LocalRemielle.CharacterId, Name = "蕾米埃尔", Title = "本地模型测试角色", Element = "光（测试）",
+            Weapon = WeaponType.Catalyst, Rarity = 5, BaseHp = 100f, BaseAtk = 25f, BaseDef = 30f,
+            NormalName = "微光试射", SkillName = "星芒脉冲", BurstName = "流光环",
+            SkillDesc = "本地测试：沿用现有范围战技，检查角色切换与战斗接口。",
+            BurstDesc = "本地测试：沿用现有范围爆发，能量和冷却遵循本游戏规则。",
+            SkillCd = 6f, SkillEnergy = 60f,
+            SetName = "流光测试", Set2Text = "攻击力提高 18%", Set4Text = "暴击率提高 12%",
+            Set2Stat = Stat.AtkPercent, Set2Value = .18f, Set4Stat = Stat.CritRate, Set4Value = .12f,
+            ElementColor = new Color(.83f, .79f, .98f)
+        },
     };
 
     static readonly Dictionary<string, CharacterInfo> CharacterByName = BuildCharacterIndex();

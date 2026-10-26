@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97980419034643f2b79a15619a22e6b8, type: 3}
+  m_Name: LoginSequenceSettings
+  m_EditorClassIdentifier:
+  companyFadeIn: 0.8
+  companyHold: 1.3
+  companyFadeOut: 0.8
+  gameFadeIn: 0.8
+  gameHold: 1.3
+  gameFadeOut: 0.8
+  warningFadeIn: 0.8
+  warningHold: 8
+  warningFadeOut: 0.8
+  sceneReveal: 1.5
+  approachDuration: 8
+  doorStart: 0.4
+  doorEnd: 0.88
+  whiteStart: 0.72
+  loadingFade: 1
+  cameraTimeout: 30
+  maximumAnimationStep: 0.05
+  cameraStartZ: -32
+  cameraEndZ: 84
+  cameraHeight: 3.2
+  verticalFov: 48
+  idleDistance: 3
+  idleTimeConstant: 100
+  musicResource: Audio/bgm/theme
+  musicVolume: 0.28
+  musicFadeIn: 3

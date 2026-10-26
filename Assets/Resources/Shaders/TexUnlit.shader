@@ -1,5 +1,3 @@
-// 单张贴图 × 顶点色（不参与光照，只用线性雾）：给城的墙体、屋顶用
-// 和 Voxel/Demo 一样极简，尽量少依赖 URP 内部（降低版本差异风险）
 Shader "Voxel/TexUnlit"
 {
     Properties
@@ -8,6 +6,7 @@ Shader "Voxel/TexUnlit"
         _TexScale ("贴图密度（每米重复几次）", Float) = 0.25
         _TexGain  ("贴图亮度增益", Float) = 1.5
         _FogColor ("Fog Color", Color) = (0.62, 0.82, 0.94, 1)
+        _TextureContrast ("Texture contrast", Range(0,1)) = 0.48
         _FogStart ("Fog Start", Float) = 34
         _FogEnd   ("Fog End",   Float) = 96
     }
@@ -24,6 +23,7 @@ Shader "Voxel/TexUnlit"
         Pass
         {
             Name "VoxelTexUnlit"
+            Tags { "LightMode"="UniversalForward" }
             Cull Back
             ZWrite On
             ZTest LEqual
@@ -31,8 +31,14 @@ Shader "Voxel/TexUnlit"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "StylizedLighting.hlsl"
+
+            float4 _VoxelAmbientTint;
+            float _VoxelEnvironmentActive;
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _FogColor;
@@ -40,6 +46,7 @@ Shader "Voxel/TexUnlit"
                 float  _FogEnd;
                 float  _TexScale;
                 float  _TexGain;
+                float  _TextureContrast;
             CBUFFER_END
 
             TEXTURE2D(_MainMap); SAMPLER(sampler_MainMap);
@@ -47,25 +54,27 @@ Shader "Voxel/TexUnlit"
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                float3 normalOS : NORMAL;
                 float3 color      : COLOR;
             };
 
             struct Varyings
             {
+                float3 world : TEXCOORD3;
+                float3 normal : TEXCOORD4;
                 float4 positionHCS : SV_POSITION;
                 float3 color       : COLOR;
-                float2 uvWorld     : TEXCOORD0;
                 float  fogFactor   : TEXCOORD1;
             };
 
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
+                OUT.world = TransformObjectToWorld(IN.positionOS.xyz);
+                OUT.normal = TransformObjectToWorldNormal(IN.normalOS);
                 OUT.positionHCS = TransformObjectToHClip(IN.positionOS.xyz);
                 OUT.color = IN.color;
 
-                // 用水平 + 高度做三维贴图坐标：墙面的砖缝不会被竖直拉伸
-                OUT.uvWorld = float2(IN.positionOS.x + IN.positionOS.z, IN.positionOS.y) * _TexScale;
 
                 float viewDepth = OUT.positionHCS.w;
                 OUT.fogFactor = saturate((viewDepth - _FogStart) / max(1e-4, _FogEnd - _FogStart));
@@ -74,13 +83,26 @@ Shader "Voxel/TexUnlit"
 
             half4 frag(Varyings IN) : SV_Target
             {
-                half3 tex = SAMPLE_TEXTURE2D(_MainMap, sampler_MainMap, IN.uvWorld).rgb;
-                float3 c = IN.color * tex * _TexGain;
+                // x+z collapses on diagonally rotated walls. Project on three
+                // world planes at a common metre scale instead of that single axis.
+                float3 geometricNormal = normalize(cross(ddy(IN.world), ddx(IN.world)));
+                float3 weights = pow(abs(geometricNormal), 8);
+                weights /= max(weights.x + weights.y + weights.z, .0001);
+                float3 p = IN.world * _TexScale;
+                half3 tex = SAMPLE_TEXTURE2D(_MainMap, sampler_MainMap, p.zy).rgb * weights.x
+                          + SAMPLE_TEXTURE2D(_MainMap, sampler_MainMap, p.xz).rgb * weights.y
+                          + SAMPLE_TEXTURE2D(_MainMap, sampler_MainMap, p.xy).rgb * weights.z;
+                // Preserve masonry and tile rhythm without dark photographic scratches.
+                tex = lerp(half3(.72,.72,.72), tex, _TextureContrast);
+                float3 c = IN.color * tex * _TexGain * lerp(float3(1,1,1), _VoxelAmbientTint.rgb, _VoxelEnvironmentActive);
+                c *= VoxelSoftLight(IN.world, IN.normal);
                 c = lerp(c, _FogColor.rgb, IN.fogFactor);
                 return half4(c, 1.0);
             }
             ENDHLSL
         }
+        UsePass "Hidden/Voxel/StylizedShadow/ShadowCaster"
+        UsePass "Hidden/Voxel/StylizedShadow/DepthOnly"
     }
 
     Fallback Off

@@ -33,7 +33,7 @@ public class VoxelPlayer : MonoBehaviour
     /// <summary>本帧是否真的在奔跑（供饱食度消耗使用）</summary>
     public bool IsSprinting { get; private set; }
 
-    static bool HasControl => Cursor.lockState == CursorLockMode.Locked;
+    static bool HasControl => VoxelPanels.CanUseInput;
 
     public void Init(Transform cameraTransform, OpenWorld world)
     {
@@ -109,6 +109,7 @@ public class VoxelPlayer : MonoBehaviour
             Move();
             EscapeIfTrapped();
         }
+        else IsSprinting = false;
 
         // 俯仰始终生效，这样松开鼠标时视角不会跳
         _camera.localRotation = Quaternion.Euler(_pitch, 0f, 0f);

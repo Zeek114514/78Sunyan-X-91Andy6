@@ -307,6 +307,7 @@ public class PuzzleSite : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_player == null) return;
 
         var cam = Camera.main;

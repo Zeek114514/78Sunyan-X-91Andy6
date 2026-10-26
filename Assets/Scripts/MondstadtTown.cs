@@ -206,6 +206,7 @@ public static class MondstadtTown
         BuildWall(verts, cols, tris);
         BuildWallRamp(verts, cols, tris);
         BuildSouthBridge(verts, cols, tris);
+        BuildSouthEntranceDetails(verts, cols, tris);
         BuildEastBridge(verts, cols, tris);
         BuildDock(verts, cols, tris);
         BuildPlaza(verts, cols, tris);
@@ -450,6 +451,37 @@ public static class MondstadtTown
         Markers.Add(new MapMarker { name = "南桥", x = x, z = midZ, kind = 1 });
     }
 
+    // Ornament remains on the existing parapets; the walking corridor is unchanged.
+    static void BuildSouthEntranceDetails(List<Vector3> verts, List<Color> cols, List<int> tris)
+    {
+        float gateZ = CenterZ - WallR;
+        float railX = SouthBridgeHalfW - .25f;
+        float length = gateZ - SouthBridgeZ;
+        for (int side = -1; side <= 1; side += 2)
+        {
+            // Continuous coping and a darker foundation make the bridge readable at a distance.
+            AppendBox(verts, cols, tris, new Vector3(CenterX + side * railX, GroundY + 1.17f, (gateZ + SouthBridgeZ) * .5f),
+                new Vector3(.65f, .16f, length), Quaternion.identity, Stone, StoneDark);
+            foreach (float z in new[] { SouthBridgeZ + 1.3f, gateZ - 2f })
+            {
+                Vector3 basePos = new Vector3(CenterX + side * railX, GroundY, z);
+                AppendBox(verts, cols, tris, basePos + Vector3.up * .18f,
+                    new Vector3(.95f, .36f, .95f), Quaternion.identity, StoneDark, StoneDark);
+                AppendCylinder(verts, cols, tris, basePos + Vector3.up * .36f, 1.9f, .25f, .2f, 8, Stone, true);
+                AppendBox(verts, cols, tris, basePos + Vector3.up * 2.4f,
+                    new Vector3(.5f, .28f, .5f), Quaternion.identity, Gold, Gold);
+                AppendBox(verts, cols, tris, basePos + Vector3.up * 2.65f,
+                    new Vector3(.68f, .16f, .68f), Quaternion.identity, StoneDark, StoneDark);
+            }
+        }
+        // A gate keystone follows the actual polygonal gate centre, not an approximate road endpoint.
+        int segment = SegmentOf(SouthGateDeg);
+        Vector3 a = OnRing(Angle(segment), WallR), b = OnRing(Angle(segment + 1), WallR);
+        Vector3 centre = (a + b) * .5f;
+        AppendBox(verts, cols, tris, new Vector3(centre.x, GroundY + 6.05f, centre.z - WallT * .5f - .08f),
+            new Vector3(.8f, 1f, .28f), Quaternion.identity, StoneDark, StoneDark);
+    }
+
     /// <summary>东桥：从东门跨过护城河，接到大教堂高台（桥面从城内 8 米升到高台 11 米）。
     /// 东端刻意伸进台地平顶内 4 米，保证桥面和地面接平、不会插进岩石斜坡里</summary>
     static void BuildEastBridge(List<Vector3> verts, List<Color> cols, List<int> tris)
@@ -459,24 +491,36 @@ public static class MondstadtTown
         float xFar  = EastBridgeFarX;                  // 230
         float w = EastBridgeHalfW * 2f;
         float midX = (xNear + xFar) * 0.5f;
-        float len = xFar - xNear;
-        float rise = CathedralY - GroundY;             // 3
-        float angle = -Mathf.Atan2(rise, len) * Mathf.Rad2Deg;   // 往东逐渐抬高
+        // Stay level through the gate and island edge. Tilt along the bridge's
+        // local forward axis, not world Z (which rolled the old deck sideways).
+        float rampStart = xNear + 3f, rampEnd = xFar - 1f;
+        Deck(new Vector3(xNear - 3f, GroundY, z), new Vector3(rampStart, GroundY, z));
+        Deck(new Vector3(rampStart, GroundY, z), new Vector3(rampEnd, CathedralY, z));
+        Deck(new Vector3(rampEnd, CathedralY, z), new Vector3(xFar + 2f, CathedralY, z));
 
-        var rot = Quaternion.Euler(0f, 90f, angle);    // 局部 Z 朝东
-        AppendBox(verts, cols, tris, new Vector3(midX, (GroundY + CathedralY) * 0.5f - 0.3f, z),
-                  new Vector3(w, 0.6f, len + 3f), rot, Stone, StoneDark);
-
-        for (int s = -1; s <= 1; s += 2)
-            AppendBox(verts, cols, tris, new Vector3(midX, (GroundY + CathedralY) * 0.5f + 0.6f, z + s * (w * 0.5f - 0.2f)),
-                      new Vector3(0.45f, 1.2f, len + 3f), rot, StoneDark, StoneDark);
+        void Deck(Vector3 start, Vector3 end)
+        {
+            Vector3 forward = end - start;
+            var rot = Quaternion.LookRotation(forward.normalized, Vector3.up);
+            Vector3 normal = rot * Vector3.up;
+            Vector3 side = rot * Vector3.right;
+            Vector3 top = (start + end) * .5f;
+            // The supplied points are the walking surface, not the slab centre.
+            AppendBox(verts, cols, tris, top - normal * .3f,
+                new Vector3(w, .6f, forward.magnitude), rot, Stone, StoneDark);
+            for (int s = -1; s <= 1; s += 2)
+                AppendBox(verts, cols, tris, top + side * (s * (w * .5f - .2f)) + normal * .6f,
+                    new Vector3(.4f, 1.2f, forward.magnitude), rot, StoneDark, StoneDark);
+        }
 
         // 两个桥墩
         for (int i = 0; i < 2; i++)
         {
             float px = Mathf.Lerp(xNear + 4f, xFar - 6f, i);
-            AppendBox(verts, cols, tris, new Vector3(px, 3.2f, z),
-                      new Vector3(2.0f, 8.8f, 2.0f), Quaternion.identity, StoneDark, StoneDark);
+            float top = Mathf.Lerp(GroundY, CathedralY, Mathf.InverseLerp(rampStart, rampEnd, px)) - .5f;
+            float bottom = OpenWorld.WaterLevel - 2f;
+            AppendBox(verts, cols, tris, new Vector3(px, (top + bottom) * .5f, z),
+                      new Vector3(2f, top - bottom, 2f), Quaternion.identity, StoneDark, StoneDark);
         }
 
         MapLines.Add(new MapLine { x0 = xNear, z0 = z, x1 = xFar, z1 = z, kind = 0 });
@@ -848,6 +892,17 @@ public static class MondstadtTown
         AppendBox(verts, cols, tris, p + Vector3.up * (h * 0.5f + 1.3f), new Vector3(w, h, d), rot, Stone, StoneDark);
         AppendGable(verts, cols, tris, p + Vector3.up * (h + 1.3f), w * 1.18f, d * 1.2f, h * 0.62f + 1.4f, rot, roof);
 
+        // Timber framing follows the existing wall footprint; no openings or floor plans change.
+        Color timber=new Color32(0x67,0x52,0x43,255);
+        foreach(float side in new[]{-1f,1f})
+        {
+            AppendBox(verts,cols,tris,p+rot*new Vector3(side*(w*0.5f-0.08f),h*0.5f+1.3f,-d*0.5f-0.035f),
+                new Vector3(0.18f,h,0.16f),rot,timber,timber);
+        }
+        foreach(float level in new[]{1.4f,h*0.53f+1.3f,h+1.2f})
+            AppendBox(verts,cols,tris,p+rot*new Vector3(0,level,-d*0.5f-0.045f),new Vector3(w,0.16f,0.16f),rot,timber,timber);
+        AppendBox(verts,cols,tris,p+rot*new Vector3(0,2.4f,-d*0.5f-0.08f),new Vector3(1.25f,2.2f,0.16f),rot,timber,timber);
+
         // 烟囱
         AppendBox(verts, cols, tris, p + Vector3.up * (h + h * 0.62f + 1.3f) + rot * new Vector3(w * 0.28f, 0f, d * 0.28f),
                   new Vector3(0.95f, 2.2f, 0.95f), rot, StoneDark, StoneDark);
@@ -858,6 +913,10 @@ public static class MondstadtTown
             Vector3 off = rot * new Vector3(k * w * 0.26f, 0f, -d * 0.5f);
             AppendBox(verts, cols, tris, p + Vector3.up * (h * 0.55f + 1.3f) + off,
                       new Vector3(1.3f, 1.6f, 0.35f), rot, Window, Window);
+            Vector3 windowCenter=p+Vector3.up*(h*0.55f+1.3f)+off;
+            AppendBox(verts,cols,tris,windowCenter+rot*new Vector3(0,0,-0.20f),new Vector3(0.08f,1.65f,0.10f),rot,Stone,Stone);
+            AppendBox(verts,cols,tris,windowCenter+rot*new Vector3(0,0,-0.20f),new Vector3(1.35f,0.08f,0.10f),rot,Stone,Stone);
+            AppendBox(verts,cols,tris,windowCenter+rot*new Vector3(0,-0.86f,-0.05f),new Vector3(1.55f,0.15f,0.48f),rot,timber,timber);
             if (h > 6f)
                 AppendBox(verts, cols, tris, p + Vector3.up * (h + 0.6f) + off,
                           new Vector3(1.3f, 1.6f, 0.35f), rot, Window, Window);

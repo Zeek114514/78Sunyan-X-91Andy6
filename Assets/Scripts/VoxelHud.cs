@@ -20,6 +20,7 @@ public class VoxelHud : MonoBehaviour
     GUIStyle _lootTitle;
     GUIStyle _lootLine;
     GUIStyle _regionStyle;
+    GUIStyle _skillName, _skillValue;
     GUIStyle _achieveTitle, _achieveLine;
 
     // ---------- 宝箱奖励提示（静态：哪只宝箱开的都往这里塞，由 HUD 统一画） ----------
@@ -65,6 +66,7 @@ public class VoxelHud : MonoBehaviour
 
     void OnGUI()
     {
+        VoxelTypography.Apply();
         if (_interaction == null) return;
         EnsureStyles();
 
@@ -75,7 +77,6 @@ public class VoxelHud : MonoBehaviour
             DrawCrosshair();
             DrawHotbar();
             DrawVitals();
-            DrawStatus();
             DrawPurse();
             DrawLootToast();
         }
@@ -229,6 +230,9 @@ public class VoxelHud : MonoBehaviour
         _purseTitle.normal.textColor = new Color(1f, 0.88f, 0.55f);
         _purse = new GUIStyle(GUI.skin.label) { fontSize = 12 };
         _purse.normal.textColor = new Color(1f, 1f, 1f, 0.92f);
+        _skillName = new GUIStyle(_purse) { alignment = TextAnchor.MiddleLeft,
+            clipping = TextClipping.Clip, fontSize = 13 };
+        _skillValue = new GUIStyle(_number) { alignment = TextAnchor.MiddleRight, fontSize = 12 };
 
         _lootTitle = new GUIStyle(GUI.skin.label) { fontSize = 15 };
         _lootTitle.normal.textColor = new Color(1f, 0.88f, 0.55f);
@@ -357,10 +361,13 @@ public class VoxelHud : MonoBehaviour
         var state = VoxelCharacterSheet.ActiveState;
         if (state == null) return;
 
-        const float w = 232f, h = 30f, gap = 12f;
+        float gap = 12f;
+        float w = Mathf.Min(232f, (Screen.width - 48f - gap) * 0.5f);
+        const float h = 52f;
 
         float right = Screen.width - 24f;
-        float top   = Screen.height - 124f;
+        // Keep skills above both the hotbar and health/hunger labels.
+        float top   = Screen.height - 176f;
 
         var skill = new Rect(right - w * 2f - gap, top, w, h);
         var burst = new Rect(right - w, top, w, h);
@@ -385,8 +392,8 @@ public class VoxelHud : MonoBehaviour
                  new Color(tint.r * 0.55f, tint.g * 0.55f, tint.b * 0.55f, 0.75f));
         FillRect(new Rect(r.x, r.y, 3f, r.height), new Color(tint.r, tint.g, tint.b, 0.95f));
 
-        LabelShadow(new Rect(r.x + 8f, r.y + 2f, r.width - 16f, 15f), label, _purse);
-        LabelShadow(new Rect(r.x + 8f, r.y + 15f, r.width - 16f, 15f), value, _number);
+        LabelShadow(new Rect(r.x + 10f, r.y + 4f, r.width - 20f, 22f), label, _skillName);
+        LabelShadow(new Rect(r.x + 10f, r.y + 27f, r.width - 20f, 21f), value, _skillValue);
     }
 
     /// <summary>10 格分段条，最后一格按数值比例部分填充。
@@ -408,27 +415,6 @@ public class VoxelHud : MonoBehaviour
             if (frac > 0f)
                 FillRect(new Rect(r.x, r.y, cell * frac, h), fill);
         }
-    }
-
-    void DrawStatus()
-    {
-        var box = new Rect(12f, Screen.height - 74f, 620f, 62f);
-        FillRect(box, new Color(0f, 0f, 0f, 0.42f));
-
-        string line1, line2;
-        if (_player != null && _player.isFlying)
-        {
-            line1 = "WASD 移动    Shift 加速    空格 上升    Ctrl 下降";
-            line2 = "T 对话框    P 祈愿    B 背包    C 角色    M 世界地图    E 开启宝箱    再输入 /fly 关闭飞行";
-        }
-        else
-        {
-            line1 = "WASD 移动    Shift 疾跑    空格 跳跃    左键 普攻    右键 战技    F 元素爆发";
-            line2 = "E 开箱    T 对话    P 祈愿    B 背包    C 角色    M 地图    R 吃兽肉    Esc 菜单";
-        }
-
-        GUI.Label(new Rect(box.x + 12f, box.y + 8f,  box.width, 24f), line1, _body);
-        GUI.Label(new Rect(box.x + 12f, box.y + 30f, box.width, 24f), line2, _body);
     }
 
     /// <summary>右上角钱袋：Andy的币 + 开宝箱攒下的素材（不占物品栏的格子，单独列在这儿）</summary>
