@@ -1,3 +1,5 @@
+当前策略：登录直接进入原开放世界，教程由出生点附近传送门自愿进入。完成键保留。
+
 # 登录场景首版
 
 启动时以独立的运行时 Unity Scene `LoginSanctuary` 创建登录内容；此时不创建 OpenWorld、玩家控制器或教程。3D 内容只在第 30 层，由专属相机渲染。
@@ -6,7 +8,7 @@
 
 `Assets/Resources/LoginSequenceSettings.asset` 集中配置公司动画、场景揭幕、推进时长、开门区间、白光起点、镜头起终点、待机缓移、加载超时与音乐音量。待机使用有界单调缓移，不循环跳回；点击后使用五阶平滑曲线。
 
-`VoxelDemo.Tutorial.Completed.v1` 保持原键和值。每次登录均进入真实教程，即使之前完成过也不会跳过；本次教程完成后从出口进入原开放世界的原出生点。登录实现不写入 PlayerPrefs。加载时保留登录相机，只有目标相机启用并完成两帧渲染后才移除；超时或异常显示错误。
+`VoxelDemo.Tutorial.Completed.v1` 保持原键和值。登录直接创建原开放世界，教程由传送门按需进入；训练期间暂停现有世界，结束或提前退出后恢复，不重建宝箱或敌人。登录实现不写入 PlayerPrefs。加载时保留登录相机，只有目标相机启用并完成两帧渲染后才移除；超时或异常显示错误。
 
 ## 本项目资源与首版限制
 
@@ -18,7 +20,7 @@
 
 ## 同一个 Unity 编辑器的验证
 
-`VoxelDemo/Diagnostics/Validate login sequence` 可运行待机稳定、重复点击、开门、相机接力和每次进入教程的分流检查，并保存实际截图到 `Artifacts/LoginValidation/`。
+`VoxelDemo/Diagnostics/Validate login sequence` 可运行待机稳定、重复点击、开门、相机接力和直接进入世界/教程入口存在的分流检查，并保存实际截图到 `Artifacts/LoginValidation/`。
 
 校验器检查开门后始终进入教程、且此时没有生成开放世界；不会为测试重写教程完成键。宽高比截图来自真实相机离屏渲染，GUI 截图另存为 `*-ui.png`。
 

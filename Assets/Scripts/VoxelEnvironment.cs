@@ -144,7 +144,8 @@ public sealed class VoxelEnvironment : MonoBehaviour
         _rainMaterial.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha); _rainMaterial.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
         _rainMaterial.SetFloat("_ZWrite", 0); _rainMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         _rainMaterial.renderQueue = 3000; renderer.sharedMaterial = _rainMaterial;
-        renderer.renderMode = ParticleSystemRenderMode.Stretch; renderer.lengthScale = 4; renderer.velocityScale = 0.08f;
+        renderer.renderMode = ParticleSystemRenderMode.Stretch;
+        renderer.lengthScale = 1.5f; renderer.velocityScale = 0.015f;
         _rain.Play();
     }
 

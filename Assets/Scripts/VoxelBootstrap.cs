@@ -24,8 +24,8 @@ public static class VoxelBootstrap
 
     public static Camera BuildDestination()
     {
-        // Every login starts a fresh training session; the exit builds the original world.
-        return VoxelTutorial.Begin(BuildWorld).ViewCamera;
+        BuildWorld();
+        return Camera.main;
     }
 
     static void BuildWorld()
@@ -171,6 +171,7 @@ public static class VoxelBootstrap
         var remielleSpot = world.SpawnPoint + new Vector3(7, 0, 3);
         remielleSpot.y = world.SurfaceY(remielleSpot.x, remielleSpot.z);
         LocalRemielle.SpawnDisplay(world.transform, remielleSpot, cam, world);
+        TutorialPortal.Create(world, playerGo, cam);
 
         // ---------- 8.5 世界地图 / 小地图（左上角小地图常驻，M 键开大地图）----------
         // ★ 必须排在所有生成器之后：大地图的底图是在 Init 里一次性烘出来的（1024×1024），

@@ -80,6 +80,7 @@ public class VoxelMonster : MonoBehaviour
     Transform _body, _leftArm, _rightArm, _leftLeg, _rightLeg, _club, _labelTop;
     Material _material;                 // 每只怪自己的材质实例（受击闪红时不会全场一起闪）
     Camera _camera;
+    static readonly Dictionary<string, Mesh> VisualMeshes = new Dictionary<string, Mesh>();
     GUIStyle _label;
     bool _announcedFight;
 
@@ -604,6 +605,7 @@ public class VoxelMonster : MonoBehaviour
 
         if (_isSlime) BuildSlimeBody();
         else BuildHilichurlBody();
+        MergeStaticBodyParts();
 
         _labelTop = new GameObject("LabelTop").transform;
         _labelTop.SetParent(transform, false);
@@ -644,9 +646,30 @@ public class VoxelMonster : MonoBehaviour
         // 头 + 骨面具 + 眼睛 + 大鼻子
         Part("Head", new Vector3(0f, 1.60f, 0f), new Vector3(0.56f, 0.52f, 0.52f), skin);
         Part("Mask", new Vector3(0f, 1.58f, 0.28f), new Vector3(0.50f, 0.40f, 0.06f), mask);
-        Part("EyeL", new Vector3(-0.13f, 1.66f, 0.32f), new Vector3(0.09f, 0.09f, 0.04f), eye);
-        Part("EyeR", new Vector3( 0.13f, 1.66f, 0.32f), new Vector3(0.09f, 0.09f, 0.04f), eye);
+        Part("EyeL", new Vector3(-0.13f, 1.66f, 0.32f), new Vector3(0.13f, 0.055f, 0.025f), eye);
+        Part("EyeR", new Vector3( 0.13f, 1.66f, 0.32f), new Vector3(0.13f, 0.055f, 0.025f), eye);
         Part("Nose", new Vector3(0f, 1.50f, 0.34f), new Vector3(0.13f, 0.16f, 0.12f), skin);
+        Color paint = new Color32(161, 69, 40, 255);
+        Color fur = kind == Kind.HilichurlBrute ? new Color32(77, 65, 52, 255) : new Color32(116, 100, 77, 255);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            var brow = Part("Mask paint", new Vector3(side * .14f, 1.74f, .311f), new Vector3(.17f, .042f, .025f), paint);
+            brow.localRotation = Quaternion.Euler(0, 0, side * 24);
+            Part("Mask cheek", new Vector3(side * .18f, 1.51f, .314f), new Vector3(.06f, .12f, .026f), paint);
+        }
+        Part("Mask crest", new Vector3(0, 1.75f, .31f), new Vector3(.045f, .14f, .03f), paint);
+        Part("Belt", new Vector3(0, .67f, .015f), new Vector3(.67f, .075f, .51f), wood);
+        for (int tuft = 0; tuft < 9; tuft++)
+        {
+            float a = tuft * Mathf.PI * 2 / 9;
+            var hair = Part("Fur", new Vector3(Mathf.Cos(a) * .27f, 1.4f, Mathf.Sin(a) * .2f - .03f),
+                new Vector3(.17f, .24f + (tuft % 3) * .04f, .16f), fur);
+            hair.localRotation = Quaternion.Euler(0, -a * Mathf.Rad2Deg, 180);
+        }
+        Part("Wrist wrap", new Vector3(0, -.52f, 0), new Vector3(.23f, .11f, .24f), cloth, _leftArm);
+        Part("Wrist wrap", new Vector3(0, -.52f, 0), new Vector3(.23f, .11f, .24f), cloth, _rightArm);
+        for (int band = 0; band < 3; band++)
+            Part("Grip binding", new Vector3(0, -.1f - band * .09f, 0), new Vector3(.155f, .045f, .155f), cloth, _club);
 
         // 暴徒多两只角，一眼能认出来
         if (kind == Kind.HilichurlBrute)
@@ -691,12 +714,28 @@ public class VoxelMonster : MonoBehaviour
             StripAndShade(eye, new Color32(0x20, 0x1a, 0x18, 255), true);
         }
 
-        var mouth = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        var mouth = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         mouth.name = "Mouth";
         mouth.transform.SetParent(_body, false);
         mouth.transform.localPosition = new Vector3(0f, 0.40f, 0.44f);
         mouth.transform.localScale = new Vector3(0.16f, 0.05f, 0.05f);
-        StripAndShade(mouth, new Color32(0x30, 0x24, 0x20, 255), false);
+        StripAndShade(mouth, new Color32(0x30, 0x24, 0x20, 255), true);
+        Part("Glint", new Vector3(-.23f, .67f, .34f), new Vector3(.14f, .075f, .025f), new Color(.86f, .96f, 1));
+        if (kind == Kind.SlimeGrass)
+        {
+            for (int leaf = -1; leaf <= 1; leaf++)
+            {
+                var blade = Part("Leaf", new Vector3(leaf * .15f, .87f, 0), new Vector3(.16f, .32f, .07f), core);
+                blade.localRotation = Quaternion.Euler(0, leaf * 35, -leaf * 35);
+            }
+        }
+        else if (kind == Kind.SlimeFire)
+        {
+            Part("Horn", new Vector3(0, .92f, 0), new Vector3(.25f, .4f, .25f), core);
+            Part("Horn", new Vector3(-.22f, .8f, .02f), new Vector3(.16f, .23f, .16f), body);
+        }
+        else
+            Part("Droplet", new Vector3(0, .83f, 0), new Vector3(.2f, .22f, .2f), core);
     }
 
     // ---------- 建模小工具 ----------
@@ -711,23 +750,77 @@ public class VoxelMonster : MonoBehaviour
 
     Transform Part(string name, Vector3 localPos, Vector3 size, Color color, Transform parent = null)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        var go = new GameObject(name);
         go.name = name;
         go.transform.SetParent(parent != null ? parent : _body, false);
         go.transform.localPosition = localPos;
         go.transform.localScale = size;
-        StripAndShade(go, color, false);
+        string shape = name == "Horn" || name == "Fur" ? "cone" : name.StartsWith("Arm") || name.StartsWith("Leg") || name.StartsWith("Club") ? "capsule" : "round";
+        string key = shape + ColorUtility.ToHtmlStringRGBA(color);
+        if (!VisualMeshes.TryGetValue(key, out var mesh) || mesh == null)
+        {
+            var vertices = new List<Vector3>(); var colors = new List<Color>(); var triangles = new List<int>();
+            if (shape == "cone")
+                LowPoly.Cylinder(vertices, colors, triangles, Vector3.down * .5f, 1f, .5f, .025f, 12, color, true);
+            else
+            {
+                if (shape == "capsule")
+                {
+                    float[] heights = { .5f, .4665f, .375f, .25f, -.25f, -.375f, -.4665f, -.5f };
+                    float[] radii = { 0, .25f, .433f, .5f, .5f, .433f, .25f, 0 };
+                    for (int ring = 0; ring < heights.Length; ring++)
+                    for (int segment = 0; segment <= 12; segment++)
+                    {
+                        float angle = segment * Mathf.PI * 2 / 12;
+                        vertices.Add(new Vector3(Mathf.Sin(angle) * radii[ring], heights[ring], Mathf.Cos(angle) * radii[ring]));
+                        colors.Add(color.linear);
+                    }
+                    for (int ring = 0; ring < heights.Length - 1; ring++)
+                    for (int segment = 0; segment < 12; segment++)
+                    {
+                        int a = ring * 13 + segment, b = a + 13;
+                        triangles.Add(a); triangles.Add(b); triangles.Add(a + 1);
+                        triangles.Add(a + 1); triangles.Add(b); triangles.Add(b + 1);
+                    }
+                }
+                else LowPoly.Sphere(vertices, colors, triangles, Vector3.zero, .5f, color, 12);
+            }
+            mesh = LowPoly.BuildMesh("Monster " + key, vertices, colors, triangles);
+            BakeShade(mesh, color, true);
+            VisualMeshes[key] = mesh;
+        }
+        go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        go.AddComponent<MeshRenderer>().sharedMaterial = _material;
         return go.transform;
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetVisualMeshes()
+    {
+        foreach (var mesh in VisualMeshes.Values) if (mesh != null) Destroy(mesh);
+        VisualMeshes.Clear();
     }
 
     /// <summary>拆掉自带碰撞体（统一用胶囊）、按法线烘顶点色、换成怪物自己的材质</summary>
     void StripAndShade(GameObject go, Color color, bool smooth)
     {
         var col = go.GetComponent<Collider>();
-        if (col != null) Destroy(col);
-
-        BakeShade(go.GetComponent<MeshFilter>().mesh, color, smooth);
+        if (col != null) { col.enabled = false; Destroy(col); }
+        var filter = go.GetComponent<MeshFilter>();
+        string key = "primitive_" + filter.sharedMesh.name + ColorUtility.ToHtmlStringRGBA(color) + smooth;
+        if (!VisualMeshes.TryGetValue(key, out var mesh) || mesh == null)
+        {
+            mesh = Instantiate(filter.sharedMesh);
+            BakeShade(mesh, color, smooth);
+            VisualMeshes[key] = mesh;
+        }
+        filter.sharedMesh = mesh;
         go.GetComponent<MeshRenderer>().sharedMaterial = _material;
+    }
+
+    void OnDestroy()
+    {
+        if (_material != null) Destroy(_material);
     }
 
     /// <summary>方块按面明暗分档、球面按法线做渐变（和世界里其它低模一个调子；着色器直接用顶点色，所以转 linear）</summary>
@@ -754,6 +847,35 @@ public class VoxelMonster : MonoBehaviour
         }
 
         mesh.SetColors(colors);
+    }
+
+    void MergeStaticBodyParts()
+    {
+        string key = "combined_" + kind;
+        var sources = new List<MeshFilter>();
+        foreach (Transform child in _body)
+        {
+            var filter = child.GetComponent<MeshFilter>();
+            if (filter != null) sources.Add(filter);
+        }
+        if (sources.Count == 0) return;
+        if (!VisualMeshes.TryGetValue(key, out var mesh) || mesh == null)
+        {
+            var parts = new CombineInstance[sources.Count];
+            for (int i = 0; i < parts.Length; i++)
+                parts[i] = new CombineInstance { mesh = sources[i].sharedMesh,
+                    transform = _body.worldToLocalMatrix * sources[i].transform.localToWorldMatrix };
+            mesh = new Mesh { name = "Combined monster torso " + kind };
+            mesh.CombineMeshes(parts, true, true);
+            VisualMeshes[key] = mesh;
+        }
+        _body.gameObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+        _body.gameObject.AddComponent<MeshRenderer>().sharedMaterial = _material;
+        foreach (var source in sources)
+        {
+            source.GetComponent<Renderer>().enabled = false;
+            Destroy(source.gameObject);
+        }
     }
 
     // ---------- 名字牌 ----------
