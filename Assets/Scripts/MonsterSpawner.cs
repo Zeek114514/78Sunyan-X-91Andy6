@@ -264,73 +264,90 @@ public class MonsterSpawner : MonoBehaviour
     /// <summary>营地摆设：棚子 + 篝火石圈 + 吊锅 + 木桩 + 图腾旗 + 木箱 + 晾架（全部木石色，合一个网格）</summary>
     void BuildCampProps(Mesher m, Vector3 c, Quaternion rot)
     {
-        Color wood  = new Color32(0x6b, 0x4a, 0x2f, 255);
-        Color wood2 = new Color32(0x87, 0x63, 0x40, 255);
-        Color hide  = new Color32(0x8d, 0x6a, 0x4a, 255);
-        Color stone = new Color32(0xa8, 0xa2, 0x93, 255);
-        Color cloth = new Color32(0x9c, 0x3b, 0x33, 255);
-        Color bone  = new Color32(0xe4, 0xdc, 0xc8, 255);
-
-        // 棚子：两根前柱 + 两根后柱 + 斜屋顶 + 背板
-        for (int s = -1; s <= 1; s += 2)
+        Color wood = new Color32(101, 68, 43, 255), lightWood = new Color32(142, 107, 65, 255);
+        Color hide = new Color32(145, 111, 70, 255), rope = new Color32(190, 165, 111, 255);
+        Color stone = new Color32(142, 139, 125, 255), dark = new Color32(46, 41, 35, 255);
+        Color bone = new Color32(223, 211, 177, 255), paint = new Color32(151, 57, 38, 255);
+        Vector3 Q(float x, float y, float z) => c + rot * new Vector3(x, y, z);
+        void Log(float x, float z, float height, float lean)
         {
-            m.Box(c + rot * new Vector3(s * 1.7f, 1.0f, -1.6f), new Vector3(0.22f, 2.0f, 0.22f), rot, wood2, wood);
-            m.Box(c + rot * new Vector3(s * 1.7f, 0.5f,  1.6f), new Vector3(0.22f, 1.0f, 0.22f), rot, wood2, wood);
+            m.Log(Q(x, 0, z), Q(x + lean, height, z + .1f), .14f, wood);
+            foreach (float y in new[] { .45f, height - .22f })
+                m.Cylinder(Q(x + lean * y / height, y, z + .1f * y / height), .1f, .165f, .165f, rope);
         }
-        m.Box(c + rot * new Vector3(0f, 2.15f, 0f), new Vector3(4.0f, 0.18f, 4.4f), rot * Quaternion.Euler(14f, 0f, 0f), hide, hide);
-        m.Box(c + rot * new Vector3(0f, 1.0f, -1.75f), new Vector3(3.5f, 2.0f, 0.16f), rot, hide, wood);
-
-        // 篝火：石圈 + 交叉的柴
-        for (int i = 0; i < 8; i++)
+        // A-frame hide shelter: visible roof ribs, four grounded posts and a raised ridge.
+        foreach (float z in new[] { -4.1f, -.6f })
         {
-            float a = i * Mathf.PI * 0.25f;
-            m.Box(c + rot * new Vector3(0.4f + Mathf.Cos(a) * 0.85f, 0.14f, 1.1f + Mathf.Sin(a) * 0.85f),
-                  new Vector3(0.36f, 0.28f, 0.36f), rot, stone, stone);
+            Log(-2.25f, z, 2.05f, .12f); Log(2.25f, z, 2.05f, -.12f);
+            m.Log(Q(-2.55f, 1.94f, z), Q(0, 3.28f, z), .12f, lightWood);
+            m.Log(Q(0, 3.28f, z), Q(2.55f, 1.94f, z), .12f, lightWood);
         }
-        for (int i = 0; i < 3; i++)
-            m.Box(c + rot * new Vector3(0.4f, 0.26f + i * 0.12f, 1.1f), new Vector3(0.16f, 0.16f, 1.5f),
-                  rot * Quaternion.Euler(0f, i * 55f, 0f), wood, wood);
-
-        // 吊锅：三根斜杆 + 锅 + 吊链
-        Vector3 pot = c + rot * new Vector3(2.8f, 0f, 0.4f);
-        for (int i = 0; i < 3; i++)
+        m.Log(Q(0, 3.28f, -4.25f), Q(0, 3.28f, -.35f), .15f, wood);
+        for (int side = -1; side <= 1; side += 2)
         {
-            float a = i * Mathf.PI * 2f / 3f + 0.4f;
-            Vector3 lean = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 0.55f;
-            m.Box(pot + rot * new Vector3(lean.x, 0.85f, lean.z), new Vector3(0.14f, 1.8f, 0.14f),
-                  rot * Quaternion.Euler(Mathf.Sin(a) * 16f, 0f, -Mathf.Cos(a) * 16f), wood2, wood);
+            m.Log(Q(side * 2.25f, .25f, -4.1f), Q(side * 2.15f, 1.9f, -.6f), .1f, wood);
+            for (int strip = 0; strip < 4; strip++)
+            {
+                float a = strip / 4f, b = (strip + 1f) / 4f;
+                float ya = 3.23f - Mathf.Pow(a, 1.3f) * 1.3f, yb = 3.23f - Mathf.Pow(b, 1.3f) * 1.3f;
+                Color cloth = Color.Lerp(hide, lightWood, strip % 2 == 0 ? .05f : .23f);
+                m.Panel(Q(side * a * 2.6f, ya, -4.2f), Q(side * a * 2.6f, ya, -.45f),
+                    Q(side * b * 2.6f, yb, -.45f), Q(side * b * 2.6f, yb, -4.2f), cloth);
+                m.Log(Q(side * b * 2.6f, yb + .035f, -4.2f), Q(side * b * 2.6f, yb + .035f, -.45f), .025f, rope);
+            }
         }
-        m.Box(pot + rot * new Vector3(0f, 0.45f, 0f), new Vector3(0.14f, 0.55f, 0.14f), rot, wood, wood);
-        m.Box(pot + rot * new Vector3(0f, 0.62f, 0f), new Vector3(0.8f, 0.5f, 0.8f), rot, new Color32(0x4a, 0x4a, 0x50, 255), new Color32(0x3a, 0x3a, 0x40, 255));
-
-        // 图腾旗：杆 + 横杆 + 布 + 骨饰
-        Vector3 banner = c + rot * new Vector3(-1.0f, 0f, -4.4f);
-        m.Box(banner + Vector3.up * 2.1f, new Vector3(0.24f, 4.2f, 0.24f), rot, wood2, wood);
-        m.Box(banner + Vector3.up * 3.6f, new Vector3(1.5f, 0.18f, 0.18f), rot, wood2, wood);
-        m.Box(banner + rot * new Vector3(0.45f, 2.9f, 0f), new Vector3(0.9f, 1.5f, 0.1f), rot, cloth, cloth);
-        m.Box(banner + Vector3.up * 4.35f, new Vector3(0.4f, 0.36f, 0.4f), rot, bone, bone);
-
-        // 木桩栅栏：一排尖桩 + 一道横杆
-        for (int i = 0; i < 6; i++)
+        // Uneven back planks; front and sides stay open for combat navigation.
+        for (int plank = -5; plank <= 5; plank++)
         {
-            float x = -5.2f + i * 0.95f;
-            float h = 1.2f + Hash01(i, (int)c.x, 101) * 0.7f;
-            m.Box(c + rot * new Vector3(x, h * 0.5f, 3.4f), new Vector3(0.18f, h, 0.18f), rot, wood2, wood);
+            float h = 1.25f + (plank % 3 + 3) * .12f;
+            m.Box(Q(plank * .38f, h * .5f, -4.03f), new Vector3(.34f, h, .12f), rot, lightWood, wood);
         }
-        m.Box(c + rot * new Vector3(-2.8f, 1.05f, 3.4f), new Vector3(5.4f, 0.16f, 0.16f), rot, wood2, wood);
-
-        // 木箱：两个并排 + 一个叠上去
-        m.Box(c + rot * new Vector3(3.7f, 0.45f, -2.7f), new Vector3(0.9f, 0.9f, 0.9f), rot, wood2, wood);
-        m.Box(c + rot * new Vector3(4.7f, 0.45f, -2.4f), new Vector3(0.9f, 0.9f, 0.9f), rot * Quaternion.Euler(0f, 18f, 0f), wood2, wood);
-        m.Box(c + rot * new Vector3(3.9f, 1.35f, -2.6f), new Vector3(0.8f, 0.8f, 0.8f), rot * Quaternion.Euler(0f, -12f, 0f), wood2, wood);
-
-        // 晾架：两根杆 + 横杆 + 三条挂着的肉干
-        Vector3 rack = c + rot * new Vector3(2.6f, 0f, 3.6f);
-        for (int s = -1; s <= 1; s += 2)
-            m.Box(rack + rot * new Vector3(s * 1.1f, 1.05f, 0f), new Vector3(0.16f, 2.1f, 0.16f), rot, wood2, wood);
-        m.Box(rack + Vector3.up * 1.95f, new Vector3(2.5f, 0.14f, 0.14f), rot, wood2, wood);
-        for (int i = -1; i <= 1; i++)
-            m.Box(rack + rot * new Vector3(i * 0.6f, 1.45f, 0f), new Vector3(0.3f, 0.8f, 0.08f), rot, hide, hide);
+        // Preserve the original flame position. Stone hearth and hanging rounded cauldron share it.
+        for (int rock = 0; rock < 10; rock++)
+        {
+            float a = rock * Mathf.PI * 2 / 10;
+            m.Ball(Q(.4f + Mathf.Cos(a) * .85f, .16f, 1.1f + Mathf.Sin(a) * .85f), .21f, stone);
+        }
+        for (int leg = 0; leg < 3; leg++)
+        {
+            float a = leg * Mathf.PI * 2 / 3;
+            m.Log(Q(.4f + Mathf.Cos(a) * 1.05f, 0, 1.1f + Mathf.Sin(a) * 1.05f), Q(.4f, 2.05f, 1.1f), .07f, wood);
+        }
+        m.Log(Q(.4f, 2.05f, 1.1f), Q(.4f, 1.3f, 1.1f), .025f, dark);
+        m.Ball(Q(.4f, 1.03f, 1.1f), .38f, dark);
+        m.Ring(Q(.4f, 1.25f, 1.1f), .27f, .39f, Quaternion.identity, stone);
+        // Bound timber stakes form a short barricade, leaving both ends and the centre accessible.
+        for (int stake = 0; stake < 7; stake++)
+        {
+            float x = -5 + stake * .57f, h = 1.35f + (stake % 3) * .17f;
+            Log(x, 3.9f, h, (stake % 2 == 0 ? 1 : -1) * .1f);
+            m.Cylinder(Q(x + (stake % 2 == 0 ? .1f : -.1f), h, 4), .23f, .12f, .015f, lightWood);
+        }
+        m.Log(Q(-5.2f, .85f, 3.85f), Q(-1.4f, .85f, 3.85f), .08f, wood);
+        // Storage barrels with hoops, and a drying rack next to the cooking area.
+        for (int barrel = 0; barrel < 2; barrel++)
+        {
+            float x = 3.3f + barrel * 1.05f;
+            m.Cylinder(Q(x, 0, -2.9f), .95f, .43f, .39f, lightWood);
+            foreach (float y in new[] { .15f, .74f }) m.Cylinder(Q(x, y, -2.9f), .075f, .45f, .45f, dark);
+        }
+        Log(2.1f, 3.5f, 2.1f, -.08f); Log(4.3f, 3.5f, 2.1f, .08f);
+        m.Log(Q(1.9f, 2.05f, 3.5f), Q(4.5f, 2.05f, 3.5f), .09f, wood);
+        for (int item = 0; item < 3; item++)
+        {
+            float x = 2.6f + item * .6f;
+            m.Log(Q(x, 2, 3.5f), Q(x, 1.65f, 3.5f), .018f, rope);
+            m.Ball(Q(x, 1.45f, 3.5f), .2f, hide);
+        }
+        // A carved mask on a supported totem gives the camp its own focal point.
+        Log(-3.5f, -1.7f, 3f, .05f);
+        m.Ball(Q(-3.45f, 2.45f, -1.58f), .4f, bone);
+        foreach (int side in new[] { -1, 1 })
+        {
+            m.Ball(Q(-3.45f + side * .13f, 2.5f, -1.23f), .065f, dark);
+            m.Log(Q(-3.45f + side * .2f, 2.65f, -1.58f), Q(-3.45f + side * .38f, 2.98f, -1.58f), .055f, bone);
+        }
+        m.Box(Q(-3.45f, 2.65f, -1.2f), new Vector3(.065f, .2f, .04f), rot, paint, paint);
     }
 
     /// <summary>火苗：一内一外两个小球（橙色外焰 + 亮黄内焰），由各自的分发器每帧抖动。
@@ -406,6 +423,38 @@ public class MonsterSpawner : MonoBehaviour
         readonly List<Vector3> _v = new List<Vector3>();
         readonly List<Color> _c = new List<Color>();
         readonly List<int> _t = new List<int>();
+
+        public void Ball(Vector3 centre, float radius, Color color)
+            => LowPoly.Sphere(_v, _c, _t, centre, radius, color, 10);
+        public void Cylinder(Vector3 position, float height, float radius, float top, Color color)
+            => LowPoly.Cylinder(_v, _c, _t, position, height, radius, top, 8, color, true);
+        public void Ring(Vector3 position, float inner, float outer, Quaternion rotation, Color color)
+            => LowPoly.Ring(_v, _c, _t, position, inner, outer, 16, rotation, color);
+        public void Log(Vector3 start, Vector3 end, float radius, Color color)
+        {
+            int first = _v.Count;
+            Vector3 direction = end - start;
+            LowPoly.Cylinder(_v, _c, _t, Vector3.zero, direction.magnitude, radius, radius * .8f, 7, color, true);
+            Quaternion rotation = Quaternion.FromToRotation(Vector3.up, direction.normalized);
+            for (int i = first; i < _v.Count; i++) _v[i] = start + rotation * _v[i];
+        }
+        public void Panel(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
+        {
+            if (Vector3.Cross(b - a, c - a).y < 0) { var swap = b; b = d; d = swap; }
+            Vector3[] points = { a, b, c, d };
+            Vector3 offset = Vector3.down * .055f;
+            void Quad(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Color shade)
+            {
+                int start = _v.Count;
+                _v.AddRange(new[] { p0, p1, p2, p3 });
+                for (int i = 0; i < 4; i++) _c.Add(shade.linear);
+                _t.AddRange(new[] { start, start + 1, start + 2, start, start + 2, start + 3 });
+            }
+            Quad(a, b, c, d, color);
+            Quad(d + offset, c + offset, b + offset, a + offset, color * .8f);
+            for (int i = 0; i < 4; i++)
+                Quad(points[i], points[i] + offset, points[(i + 1) % 4] + offset, points[(i + 1) % 4], color * .9f);
+        }
 
         /// <summary>一个盒子（八顶点，绕序和城里那套一致：法线朝外）</summary>
         public void Box(Vector3 center, Vector3 size, Quaternion rot, Color top, Color side)

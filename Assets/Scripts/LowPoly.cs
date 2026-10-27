@@ -66,7 +66,7 @@ public static class LowPoly
     /// "看得见顶面"的零件必须带盖子，否则顶面是空的、从上往下能直接看穿。</summary>
     public static void Cylinder(List<Vector3> verts, List<Color> cols, List<int> tris,
                                 Vector3 basePos, float height, float bottomR, float topR, int sides, Color color,
-                                bool capTop = false)
+                                bool capTop = false, bool capBottom = true)
     {
         int baseIndex = verts.Count;
         Color c = color.linear;
@@ -92,49 +92,34 @@ public static class LowPoly
             tris.Add(lo1); tris.Add(hi0); tris.Add(hi1);
         }
 
-        if (!capTop) return;
-
-        // 顶盖：以顶面圆心为中心的三角扇，绕序和地形朝上的面一致（法线朝上）
-        int center = verts.Count;
-        verts.Add(basePos + Vector3.up * height);
-        cols.Add(c);
-
-        for (int i = 0; i < sides; i++)
+        // Separate rim vertices keep caps flat after RecalculateNormals.
+        void Cap(float y, float radius, bool up)
         {
-            tris.Add(center);
-            tris.Add(baseIndex + sides + 2 + i);      // 顶面下一格
-            tris.Add(baseIndex + sides + 1 + i);      // 顶面当前格
+            if (radius <= 0) return;
+            int center = verts.Count;
+            verts.Add(basePos + Vector3.up * y); cols.Add(c);
+            for (int i = 0; i <= sides; i++)
+            {
+                float angle = i * Mathf.PI * 2f / sides;
+                verts.Add(basePos + new Vector3(Mathf.Cos(angle) * radius, y, Mathf.Sin(angle) * radius));
+                cols.Add(c);
+            }
+            for (int i = 0; i < sides; i++)
+            {
+                tris.Add(center);
+                tris.Add(center + 1 + i + (up ? 1 : 0));
+                tris.Add(center + 1 + i + (up ? 0 : 1));
+            }
         }
+        if (capTop) Cap(height, topR, true);
+        if (capBottom) Cap(0, bottomR, false);
     }
 
     /// <summary>棱柱（树干 / 塔身）：下粗上细，只有侧面</summary>
     public static void Prism(List<Vector3> verts, List<Color> cols, List<int> tris,
                              Vector3 basePos, float height, float bottomR, float topR, int sides, Color color)
     {
-        int baseIndex = verts.Count;
-        Color c = color.linear;
-
-        for (int i = 0; i <= sides; i++)
-        {
-            float a = (float)i / sides * Mathf.PI * 2f;
-            verts.Add(basePos + new Vector3(Mathf.Cos(a) * bottomR, 0f, Mathf.Sin(a) * bottomR));
-            cols.Add(c);
-        }
-        for (int i = 0; i <= sides; i++)
-        {
-            float a = (float)i / sides * Mathf.PI * 2f;
-            verts.Add(basePos + new Vector3(Mathf.Cos(a) * topR, height, Mathf.Sin(a) * topR));
-            cols.Add(c);
-        }
-
-        for (int i = 0; i < sides; i++)
-        {
-            int lo0 = baseIndex + i, lo1 = lo0 + 1;
-            int hi0 = baseIndex + sides + 1 + i, hi1 = hi0 + 1;
-
-            tris.Add(lo0); tris.Add(hi0); tris.Add(lo1);
-            tris.Add(lo1); tris.Add(hi0); tris.Add(hi1);
-        }
+        Cylinder(verts, cols, tris, basePos, height, bottomR, topR, sides, color, true, true);
     }
 
     /// <summary>低模球（经纬度球）。jitter 是每个顶点上的随机缩放幅度，避免看起来太圆太规整</summary>

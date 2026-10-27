@@ -302,7 +302,7 @@ public static class MondstadtTown
 
             // 内侧墙顶走道（木板）+ 内侧矮护墙
             AppendBox(verts, cols, tris,
-                      new Vector3(c.x + inward.x * WallT * 0.42f, WallTopY - 0.22f, c.z + inward.z * WallT * 0.42f),
+                      new Vector3(c.x + inward.x * WallT * 0.42f, WallTopY - 0.18f, c.z + inward.z * WallT * 0.42f),
                       new Vector3(len * 1.05f, 0.44f, WallT * 1.02f), rot, Wood, WoodDark);
             AppendBox(verts, cols, tris,
                       new Vector3(c.x + inward.x * WallT * 0.95f, WallTopY + 0.5f, c.z + inward.z * WallT * 0.95f),
@@ -330,6 +330,12 @@ public static class MondstadtTown
                            gate ? Stone : StoneDark, true);
             AppendCylinder(verts, cols, tris, new Vector3(p.x, GroundY + height, p.z),
                            gate ? 2.6f : 5.0f, radius * 1.32f, gate ? 0.5f : 0.12f, 8, RoofAlt, true);
+            foreach (float band in new[] { .16f, .73f })
+            {
+                float rr = Mathf.Lerp(radius, radius * .92f, band);
+                AppendCylinder(verts, cols, tris, new Vector3(p.x, GroundY + height * band, p.z),
+                    .18f, rr + .13f, rr + .13f, 8, Stone, true);
+            }
 
             if (gate)
             {
@@ -382,6 +388,15 @@ public static class MondstadtTown
         }
 
         Markers.Add(new MapMarker { name = name, x = gm.x, z = gm.z, kind = 0 });
+        // Trim lies above or beside the clear gate opening.
+        AppendBox(verts, cols, tris, new Vector3(gm.x, GroundY + 6.82f, gm.z),
+            new Vector3(span * 1.02f, .25f, WallT + .3f), rot, StoneDark, StoneDark);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Vector3 position = gm + (g1 - g0).normalized * (side * span * .42f);
+            AppendBox(verts, cols, tris, new Vector3(position.x, GroundY + .22f, position.z),
+                new Vector3(span * .14f + .2f, .44f, WallT), rot, Stone, StoneDark);
+        }
     }
 
     /// <summary>上墙坡道（正北）：从广场外沿斜着爬上墙顶走道，玩家能走上去绕城一圈</summary>
@@ -563,6 +578,20 @@ public static class MondstadtTown
         }
 
         Vector3 end = start + dir * (rampRun + DockLen);
+        // Edge beams and mooring rings follow the existing pier, leaving its centre open.
+        var pierRot = Quaternion.LookRotation(dir);
+        Vector3 across = pierRot * Vector3.right;
+        for (int side = -1; side <= 1; side += 2)
+        {
+            AppendBox(verts, cols, tris, new Vector3(mid.x, deckY - .1f, mid.z) + across * (side * 2.6f),
+                new Vector3(.18f, .35f, DockLen), pierRot, WoodDark, WoodDark);
+            for (int mooring = 0; mooring < 3; mooring++)
+            {
+                Vector3 pos = start + dir * (rampRun + 2f + mooring * 7f) + across * (side * 2.4f);
+                pos.y = deckY + .3f;
+                AppendRing(verts, cols, tris, pos, .12f, .19f, 10, Quaternion.identity, Gold);
+            }
+        }
         MapLines.Add(new MapLine { x0 = start.x, z0 = start.z, x1 = end.x, z1 = end.z, kind = 1 });
         Markers.Add(new MapMarker { name = "码头", x = mid.x, z = mid.z, kind = 8 });
     }
@@ -582,8 +611,18 @@ public static class MondstadtTown
         }
 
         // 广场水池：和湖面同色的浅水 + 一圈齐地面的石砌池沿 —— 一眼能看出这是水，不是地形色
-        AppendRing(verts, cols, tris, c + Vector3.up * 0.05f, 11.4f, 15.6f, 24, Quaternion.identity, Water);
-        AppendRing(verts, cols, tris, c + Vector3.up * 0.06f, 15.5f, 17.0f, 24, Quaternion.identity, StoneDark);
+        // Narrow ornamental basin with a dry outer promenade; beds no longer sit in water.
+        AppendRing(verts, cols, tris, c + Vector3.up * .05f, 11.1f, 12.4f, 48, Quaternion.identity, Water);
+        AppendRing(verts, cols, tris, c + Vector3.up * .14f, 10.95f, 11.1f, 48, Quaternion.identity, StoneDark);
+        AppendRing(verts, cols, tris, c + Vector3.up * .14f, 12.4f, 12.9f, 48, Quaternion.identity, StoneDark);
+        AppendRing(verts, cols, tris, c + Vector3.up * .03f, 12.9f, 17f, 48, Quaternion.identity, Stone);
+        for (int crossing = 0; crossing < 4; crossing++)
+        {
+            float angle = crossing * Mathf.PI * .5f;
+            Vector3 offset = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle)) * 12f;
+            AppendBox(verts, cols, tris, c + offset + Vector3.up * .075f, new Vector3(2.4f, .15f, 2.2f),
+                Yaw(-crossing * 90), Stone, StoneDark);
+        }
 
         // ★ 广场正中的风神像不在这里建：它现在是「七天神像 · 风」（走近回满生命与体力、也是传送点），
         //   几何由 TeleportAnchor.StatueMesh 在运行时生成，位置就是广场中心（TeleportSpawner 里那处锚点）。
@@ -599,6 +638,8 @@ public static class MondstadtTown
 
             Vector3 bed = c + dir * 13.6f;
             AppendCylinder(verts, cols, tris, bed, 0.5f, 1.5f, 1.4f, 10, StoneDark, true);
+            AppendRing(verts, cols, tris, bed + Vector3.up * .56f, 1.25f, 1.55f, 20,
+                Quaternion.identity, Stone);
             AppendRing(verts, cols, tris, bed + Vector3.up * 0.52f, 0f, 1.36f, 12, Quaternion.identity, Leaf);   // 花圃顶：平的一片绿
 
             Vector3 pole = c + dir * 16.2f;
@@ -657,6 +698,8 @@ public static class MondstadtTown
         }
 
         Markers.Add(new MapMarker { name = "酒馆", x = p.x, z = p.z, kind = 5 });
+        DetailFacade(verts, cols, tris, p, rot, w, d, 1.4f, h1);
+        DetailFacade(verts, cols, tris, p, rot, w * .8f, d * .82f, h1 + 1.4f, h2);
         Blob(p.x, p.z, footprint * 0.8f, 0);
     }
 
@@ -683,6 +726,10 @@ public static class MondstadtTown
                        7.0f, 1.2f, 0.9f, 8, StoneDark, true);
 
         Markers.Add(new MapMarker { name = "铁匠铺", x = p.x, z = p.z, kind = 6 });
+        DetailFacade(verts, cols, tris, p, rot, w, d, 1.4f, h);
+        for (int band = 0; band < 2; band++)
+            AppendBox(verts, cols, tris, f + Vector3.up * (1 + band * 1.8f),
+                new Vector3(3.35f, .16f, 3.35f), rot, WoodDark, WoodDark);
         Blob(p.x, p.z, 6.0f, 0);
     }
 
@@ -714,6 +761,13 @@ public static class MondstadtTown
         AppendSphere(verts, cols, tris, p + Vector3.up * (h + 5.0f), 0.5f, Gold, 6);
 
         Markers.Add(new MapMarker { name = "瞭望塔", x = p.x, z = p.z, kind = 7 });
+        for (int face = 0; face < 4; face++)
+        {
+            var facing = rot * Yaw(face * 90);
+            for (int floor = 0; floor < 3; floor++)
+                DetailWindow(verts, cols, tris, p + Vector3.up * (4 + floor * 5) + facing * new Vector3(0, 0, -side * .5f - .08f),
+                    facing, 1.1f, 2.2f);
+        }
         Blob(p.x, p.z, 5.0f, 1);
     }
 
@@ -748,11 +802,24 @@ public static class MondstadtTown
             Vector3 hub = p + Vector3.up * 14.5f - rot * new Vector3(0f, 0f, r * 0.95f);
             for (int b = 0; b < 4; b++)
             {
-                var bladeRot = rot * Quaternion.Euler(0f, 0f, b * 45f);
+                var bladeRot = rot * Quaternion.Euler(0f, 0f, b * 90f + 22.5f);
                 Vector3 dir = bladeRot * Vector3.up;
                 AppendBox(verts, cols, tris, hub + dir * 3.0f, new Vector3(0.55f, 6.4f, 0.3f), bladeRot, Wood, WoodDark);
             }
             AppendSphere(verts, cols, tris, hub, 0.75f, StoneDark, 6);
+            // A door and narrow windows make the windmill tower read as a building.
+            DetailWindow(verts, cols, tris, p + Vector3.up * 6.5f - rot * new Vector3(0, 0, 2.95f), rot, .8f, 1.5f);
+            DetailWindow(verts, cols, tris, p + Vector3.up * 10.5f - rot * new Vector3(0, 0, 2.65f), rot, .8f, 1.5f);
+            for (int blade = 0; blade < 4; blade++)
+            {
+                var br = rot * Quaternion.Euler(0, 0, blade * 90 + 22.5f);
+                Vector3 sail = hub + br * Vector3.up * 3.6f;
+                AppendBox(verts, cols, tris, sail, new Vector3(.85f, 3.2f, .1f), br,
+                    new Color(.85f, .79f, .62f), Wood);
+                for (int rib = -2; rib <= 2; rib++)
+                    AppendBox(verts, cols, tris, sail + br * new Vector3(0, rib * .6f, -.08f),
+                        new Vector3(.95f, .065f, .08f), br, WoodDark, WoodDark);
+            }
 
             Markers.Add(new MapMarker { name = "风车" + (i + 1), x = p.x, z = p.z, kind = 3 });
             Blob(p.x, p.z, 3.4f, 2);
@@ -882,46 +949,6 @@ public static class MondstadtTown
     }
 
     /// <summary>一栋民居：石基座 + 墙体 + 双坡红顶（带出檐）+ 烟囱 + 两扇窗</summary>
-    static void BuildHouse(List<Vector3> verts, List<Color> cols, List<int> tris,
-                           Vector3 p, float yaw, float w, float d, float h, float seed)
-    {
-        var rot = Yaw(yaw);
-        Color roof = (seed > 0.5f) ? Roof : RoofAlt;
-
-        AppendBox(verts, cols, tris, p + Vector3.up * 0.65f, new Vector3(w * 1.08f, 1.3f, d * 1.08f), rot, StoneDark, StoneDark);
-        AppendBox(verts, cols, tris, p + Vector3.up * (h * 0.5f + 1.3f), new Vector3(w, h, d), rot, Stone, StoneDark);
-        AppendGable(verts, cols, tris, p + Vector3.up * (h + 1.3f), w * 1.18f, d * 1.2f, h * 0.62f + 1.4f, rot, roof);
-
-        // Timber framing follows the existing wall footprint; no openings or floor plans change.
-        Color timber=new Color32(0x67,0x52,0x43,255);
-        foreach(float side in new[]{-1f,1f})
-        {
-            AppendBox(verts,cols,tris,p+rot*new Vector3(side*(w*0.5f-0.08f),h*0.5f+1.3f,-d*0.5f-0.035f),
-                new Vector3(0.18f,h,0.16f),rot,timber,timber);
-        }
-        foreach(float level in new[]{1.4f,h*0.53f+1.3f,h+1.2f})
-            AppendBox(verts,cols,tris,p+rot*new Vector3(0,level,-d*0.5f-0.045f),new Vector3(w,0.16f,0.16f),rot,timber,timber);
-        AppendBox(verts,cols,tris,p+rot*new Vector3(0,2.4f,-d*0.5f-0.08f),new Vector3(1.25f,2.2f,0.16f),rot,timber,timber);
-
-        // 烟囱
-        AppendBox(verts, cols, tris, p + Vector3.up * (h + h * 0.62f + 1.3f) + rot * new Vector3(w * 0.28f, 0f, d * 0.28f),
-                  new Vector3(0.95f, 2.2f, 0.95f), rot, StoneDark, StoneDark);
-
-        // 朝街那面的两扇窗
-        for (int k = -1; k <= 1; k += 2)
-        {
-            Vector3 off = rot * new Vector3(k * w * 0.26f, 0f, -d * 0.5f);
-            AppendBox(verts, cols, tris, p + Vector3.up * (h * 0.55f + 1.3f) + off,
-                      new Vector3(1.3f, 1.6f, 0.35f), rot, Window, Window);
-            Vector3 windowCenter=p+Vector3.up*(h*0.55f+1.3f)+off;
-            AppendBox(verts,cols,tris,windowCenter+rot*new Vector3(0,0,-0.20f),new Vector3(0.08f,1.65f,0.10f),rot,Stone,Stone);
-            AppendBox(verts,cols,tris,windowCenter+rot*new Vector3(0,0,-0.20f),new Vector3(1.35f,0.08f,0.10f),rot,Stone,Stone);
-            AppendBox(verts,cols,tris,windowCenter+rot*new Vector3(0,-0.86f,-0.05f),new Vector3(1.55f,0.15f,0.48f),rot,timber,timber);
-            if (h > 6f)
-                AppendBox(verts, cols, tris, p + Vector3.up * (h + 0.6f) + off,
-                          new Vector3(1.3f, 1.6f, 0.35f), rot, Window, Window);
-        }
-    }
 
     // ================= 大教堂（城东高台上） =================
 
@@ -1301,6 +1328,7 @@ public static class MondstadtTown
         }
 
         Markers.Add(new MapMarker { name = "大教堂", x = cx, z = cz, kind = 2 });
+        DetailCathedral(verts, cols, tris, x0, x1, z0, z1, fTop, wallH, tower);
         Blob(cx + 2f, cz, 16f, 1);
     }
 
@@ -1341,6 +1369,207 @@ public static class MondstadtTown
     // ================= 低模零件（都支持完整旋转） =================
 
     /// <summary>一个盒子。几何在 LowPoly 里，这里只负责按顶面颜色挑子网格</summary>
+    static void DetailWindow(List<Vector3> v, List<Color> c, List<int> t, Vector3 centre, Quaternion rotation, float width, float height)
+    {
+        Color frame = new Color32(193, 182, 156, 255);
+        void Part(Vector3 offset, Vector3 size, Color color)
+            => AppendBox(v, c, t, centre + rotation * offset, size, rotation, color, color);
+        Part(Vector3.zero, new Vector3(width + .24f, height + .24f, .12f), WoodDark);
+        Part(new Vector3(0, 0, -.08f), new Vector3(width, height, .06f), Window);
+        Part(new Vector3(0, 0, -.13f), new Vector3(.07f, height + .12f, .08f), frame);
+        Part(new Vector3(0, 0, -.13f), new Vector3(width + .12f, .08f, .08f), frame);
+        Part(new Vector3(0, -height * .5f - .16f, -.04f), new Vector3(width + .4f, .16f, .35f), Stone);
+    }
+
+    static void DetailFacade(List<Vector3> v, List<Color> c, List<int> t, Vector3 p, Quaternion rot,
+        float width, float depth, float baseY, float height)
+    {
+        Color plaster = new Color32(223, 210, 182, 255);
+        // A thin plaster face preserves the existing building collider and footprint.
+        for (int side = -1; side <= 1; side += 2)
+        {
+            AppendBox(v, c, t, p + rot * new Vector3(0, baseY + height * .5f, side * (depth * .5f + .025f)),
+                new Vector3(width - .12f, height - .16f, .05f), rot, plaster, plaster);
+            for (int corner = -1; corner <= 1; corner += 2)
+                AppendBox(v, c, t, p + rot * new Vector3(corner * (width * .5f - .08f), baseY + height * .5f, side * (depth * .5f + .07f)),
+                    new Vector3(.18f, height, .18f), rot, WoodDark, WoodDark);
+            foreach (float y in new[] { baseY + .14f, baseY + height - .14f })
+                AppendBox(v, c, t, p + rot * new Vector3(0, y, side * (depth * .5f + .08f)),
+                    new Vector3(width, .2f, .2f), rot, WoodDark, WoodDark);
+        }
+        for (int side = -1; side <= 1; side += 2)
+            DetailWindow(v, c, t, p + rot * new Vector3(side * width * .29f, baseY + height * .55f, -depth * .5f - .12f),
+                rot, 1.35f, Mathf.Min(1.8f, height * .55f));
+        // Ground-level door only; upper floors must not acquire floating entrances.
+        if (baseY < 2)
+        {
+            AppendBox(v, c, t, p + rot * new Vector3(0, baseY + 1.12f, -depth * .5f - .13f),
+                new Vector3(1.6f, 2.24f, .14f), rot, WoodDark, WoodDark);
+            AppendBox(v, c, t, p + rot * new Vector3(0, baseY + 1.1f, -depth * .5f - .23f),
+                new Vector3(1.3f, 2f, .08f), rot, Wood, WoodDark);
+        }
+    }
+
+    static void DetailCathedral(List<Vector3> v, List<Color> c, List<int> t, float x0, float x1,
+        float z0, float z1, float floor, float height, Vector3 tower)
+    {
+        float cz = (z0 + z1) * .5f;
+        Color trim = new Color32(204, 199, 181, 255), glass = new Color32(65, 112, 153, 255);
+        void Box(Vector3 centre, Vector3 size, Color col) => AppendBox(v, c, t, centre, size, Quaternion.identity, col, col);
+        void Beam(Vector3 start, Vector3 end, float thickness, Color col)
+        {
+            Vector3 delta = end - start;
+            AppendBox(v, c, t, (start + end) * .5f, new Vector3(thickness, thickness, delta.magnitude),
+                Quaternion.LookRotation(delta), col, col);
+        }
+        // Layered entrance archivolts sit on the facade, outside the existing clear opening.
+        for (int layer = 0; layer < 3; layer++)
+        {
+            float r = 5.15f + layer * .28f, x = x0 - .12f - layer * .14f;
+            for (int side = -1; side <= 1; side += 2)
+                Box(new Vector3(x, floor + 1.55f, cz + side * r), new Vector3(.28f, 3.1f, .24f), trim);
+            for (int segment = 0; segment < 24; segment++)
+            {
+                float a = segment * Mathf.PI / 24, b = (segment + 1) * Mathf.PI / 24;
+                Beam(new Vector3(x, floor + 3.1f + Mathf.Sin(a) * r, cz + Mathf.Cos(a) * r),
+                    new Vector3(x, floor + 3.1f + Mathf.Sin(b) * r, cz + Mathf.Cos(b) * r), .22f, trim);
+            }
+        }
+        // Rose window: glass backing, concentric stone frame and radial tracery.
+        Vector3 rose = new Vector3(x0 - .13f, floor + 12.6f, cz);
+        Quaternion face = Quaternion.Euler(0, 0, 90);
+        AppendRing(v, c, t, rose, 0, 1.72f, 32, face, glass);
+        AppendRing(v, c, t, rose + Vector3.left * .07f, 1.68f, 1.95f, 32, face, trim);
+        AppendRing(v, c, t, rose + Vector3.left * .1f, .48f, .57f, 24, face, Gold);
+        for (int ray = 0; ray < 12; ray++)
+        {
+            float angle = ray * Mathf.PI / 6;
+            Vector3 radial = new Vector3(0, Mathf.Sin(angle), Mathf.Cos(angle));
+            Beam(rose + Vector3.left * .12f + radial * .55f, rose + Vector3.left * .12f + radial * 1.7f, .075f, trim);
+        }
+        // Tall exterior windows and wall string courses, clear of the entry stairs.
+        foreach (float z in new[] { z0 - .09f, z1 + .09f })
+        {
+            var facing = Quaternion.Euler(0, z < cz ? 0 : 180, 0);
+            for (int bay = 0; bay < 3; bay++)
+                DetailWindow(v, c, t, new Vector3(x0 + 4.5f + bay * 8.5f, floor + 8f, z), facing, 2.2f, 5.6f);
+            foreach (float y in new[] { floor + 1.1f, floor + height - .6f })
+                Box(new Vector3((x0 + x1) * .5f, y, z), new Vector3(x1 - x0 + .3f, .22f, .28f), trim);
+        }
+        // Crown mouldings and a clock face enrich the existing bell tower silhouette.
+        foreach (float y in new[] { 2f, 11.2f, 20.8f })
+            AppendRing(v, c, t, tower + Vector3.up * y, 3.8f, 4.65f, 20, Quaternion.identity, trim);
+        Vector3 clock = tower + new Vector3(-4.4f, 17.3f, 0);
+        AppendRing(v, c, t, clock, 0, 1.05f, 24, face, WoodDark);
+        AppendRing(v, c, t, clock + Vector3.left * .04f, .96f, 1.13f, 24, face, Gold);
+        Beam(clock + Vector3.left * .07f, clock + new Vector3(-.07f, .7f, 0), .07f, trim);
+        Beam(clock + Vector3.left * .07f, clock + new Vector3(-.07f, -.3f, .42f), .07f, trim);
+    }
+
+    static void BuildHouse(List<Vector3> verts, List<Color> cols, List<int> tris,
+        Vector3 p, float yaw, float w, float d, float h, float seed)
+    {
+        var rot = Yaw(yaw);
+        Color plaster = Color.Lerp(new Color32(231, 218, 188, 255), new Color32(211, 219, 204, 255), seed);
+        Color timber = new Color32(99, 73, 51, 255), trim = new Color32(148, 113, 75, 255);
+        Color door = new Color32(111, 83, 55, 255), glass = new Color32(91, 130, 143, 255);
+        Color roof = seed > .5f ? Roof : RoofAlt;
+        Vector3 Q(float x, float y, float z) => p + rot * new Vector3(x, y, z);
+        void Box(float x, float y, float z, float sx, float sy, float sz, Color col)
+            => AppendBox(verts, cols, tris, Q(x, y, z), new Vector3(sx, sy, sz), rot, col, col * .92f);
+        float front = -d * .5f;
+        const float baseH = .55f;
+        float top = baseH + h, roofH = w * .46f + .2f;
+        Box(0, baseH * .5f, 0, w * 1.08f, baseH, d * 1.08f, StoneDark);
+        Box(0, baseH + h * .5f, 0, w, h, d, plaster);
+        // Plastered gables and actual thin tile slopes replace the solid red roof wedge.
+        AppendGable(verts, cols, tris, Q(0, top, 0), w, d, roofH, rot, plaster);
+        float run = w * .59f, rise = roofH * run / (w * .5f);
+        float eave = top + roofH - rise;
+        float angle = Mathf.Atan2(rise, run) * Mathf.Rad2Deg;
+        float slopeLength = Mathf.Sqrt(run * run + rise * rise);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            var roofRot = rot * Quaternion.Euler(0, 0, -side * angle);
+            Vector3 centre = Q(side * run * .5f, eave + rise * .5f, 0);
+            AppendBox(verts, cols, tris, centre, new Vector3(slopeLength, .18f, d * 1.2f), roofRot, roof, roof);
+            // Eave fascia and rake boards add thickness without changing the roof footprint.
+            Box(side * run, eave - .04f, 0, .16f, .25f, d * 1.2f, timber);
+            for (int end = -1; end <= 1; end += 2)
+                AppendBox(verts, cols, tris, centre + rot * new Vector3(0, 0, end * d * .6f),
+                    new Vector3(slopeLength, .2f, .16f), roofRot, trim, timber);
+        }
+        Box(0, top + roofH + .08f, 0, .24f, .22f, d * 1.2f, roof);
+        // Framing on all elevations; plain plaster is not routed through the stone atlas.
+        for (int side = -1; side <= 1; side += 2)
+        {
+            for (int end = -1; end <= 1; end += 2)
+                Box(side * (w * .5f - .06f), baseH + h * .5f, end * (d * .5f + .025f), .16f, h, .16f, timber);
+            foreach (float y in new[] { baseH + .18f, top - .12f })
+                Box(side * w * .5f, y, 0, .16f, .18f, d, timber);
+        }
+        foreach (float y in new[] { baseH + .18f, top - .12f })
+        { Box(0, y, front - .05f, w, .18f, .16f, timber); Box(0, y, -front + .05f, w, .18f, .16f, timber); }
+        if (h > 6)
+        {
+            Box(0, 3.6f, front - .06f, w, .2f, .18f, timber);
+            Box(0, 3.6f, -front + .06f, w, .2f, .18f, timber);
+        }
+        // Door frame, individual boards, hinges and latch. These are facade details, not an enterable shop.
+        Box(0, baseH + 1.08f, front - .07f, 1.32f, 2.16f, .16f, timber);
+        Box(0, baseH + 1.05f, front - .17f, 1.05f, 1.94f, .1f, door);
+        for (int plank = -2; plank <= 2; plank++)
+            Box(plank * .2f, baseH + 1.05f, front - .23f, .016f, 1.9f, .025f, timber);
+        foreach (float y in new[] { baseH + .5f, baseH + 1.6f })
+            Box(-.38f, y, front - .25f, .26f, .065f, .04f, timber);
+        Box(.36f, baseH + 1.02f, front - .27f, .07f, .12f, .08f, Gold);
+        Box(0, .12f, front - .48f, 1.65f, .24f, .65f, StoneDark);
+        Box(0, .36f, front - .22f, 1.5f, .24f, .36f, Stone);
+        // Upper and side windows break up the solid rear walls seen from the ring road.
+        for (int side = -1; side <= 1; side += 2)
+        {
+            WindowAt(side * w * .27f, baseH + h * .6f, front - .1f, 0);
+            WindowAt(side * (w * .5f + .1f), baseH + h * .55f, 0, 90);
+        }
+        void WindowAt(float x, float y, float z, float localYaw)
+        {
+            var wr = rot * Quaternion.Euler(0, localYaw, 0);
+            Vector3 centre = Q(x, y, z);
+            void Part(Vector3 offset, Vector3 size, Color col)
+                => AppendBox(verts, cols, tris, centre + wr * offset, size, wr, col, col * .92f);
+            Part(Vector3.zero, new Vector3(1.04f, 1.3f, .14f), timber);
+            Part(new Vector3(0, 0, -.08f), new Vector3(.84f, 1.1f, .05f), glass);
+            Part(new Vector3(0, 0, -.13f), new Vector3(.065f, 1.18f, .08f), trim);
+            Part(new Vector3(0, 0, -.13f), new Vector3(.92f, .065f, .08f), trim);
+            Part(new Vector3(0, -.72f, -.06f), new Vector3(1.2f, .15f, .35f), Stone);
+        }
+        // A flower box or hanging trade sign differentiates neighbours without filling the road.
+        if (seed < .5f)
+        {
+            float x = -w * .27f, y = baseH + h * .6f - .9f;
+            Box(x, y, front - .25f, 1.12f, .24f, .35f, trim);
+            for (int flower = -2; flower <= 2; flower++)
+            {
+                Vector3 plant = Q(x + flower * .19f, y + .2f, front - .25f);
+                AppendSphere(verts, cols, tris, plant, .12f, Leaf, 6);
+                AppendSphere(verts, cols, tris, plant + Vector3.up * .1f, .055f,
+                    seed < .25f ? new Color(1f, .76f, .31f) : new Color(.72f, .5f, .76f), 6);
+            }
+        }
+        else
+        {
+            float x = w * .38f;
+            Box(x, 2.9f, front - .3f, .09f, .1f, .62f, timber);
+            Box(x, 2.55f, front - .55f, .66f, .5f, .1f, trim);
+            // A raised emblem, readable without introducing fake shop interaction.
+            AppendRing(verts, cols, tris, Q(x, 2.55f, front - .62f), .1f, .15f, 10,
+                rot * Quaternion.Euler(90, 0, 0), Gold);
+        }
+        float chimneyY = top + roofH * .65f;
+        Box(w * .28f, chimneyY, d * .24f, .65f, 1.8f, .7f, StoneDark);
+        Box(w * .28f, chimneyY + .98f, d * .24f, .86f, .16f, .9f, Stone);
+    }
+
     static void AppendBox(List<Vector3> verts, List<Color> cols, List<int> tris,
                           Vector3 center, Vector3 size, Quaternion rot, Color top, Color side)
         => LowPoly.Box(verts, cols, Route(top), center, size, rot, top, side);

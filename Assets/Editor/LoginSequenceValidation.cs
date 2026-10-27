@@ -66,7 +66,7 @@ public static class LoginSequenceValidation
         }
         Errors.Clear();_stage=0;_minCameras=int.MaxValue;_stageTime=EditorApplication.timeSinceStartup;
         _deadline=_stageTime+180;_report=new StringBuilder("utc="+DateTime.UtcNow.ToString("O")+"\nunity="+Application.unityVersion+"\ncompletionBefore="+VoxelTutorial.Completed+"\n");
-        _report.AppendLine("routingPolicy=always tutorial; no PlayerPrefs modified by validation");
+        _report.AppendLine("routingPolicy=open world with optional tutorial portal; no PlayerPrefs modified by validation");
         foreach(string name in new[]{"LoginCloudVolume","BrandingLogo","DynamicSky"})
         {
             var shader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/Resources/Shaders/"+name+".shader");
@@ -128,8 +128,9 @@ public static class LoginSequenceValidation
             if(_title!=null&&TitleScreen.IsOpen)return;
             bool tutorial=UnityEngine.Object.FindObjectOfType<VoxelTutorial>()!=null;
             bool world=UnityEngine.Object.FindObjectOfType<OpenWorld>()!=null;
-            bool expectedTutorial=true;
+            bool expectedTutorial=false;
             if(tutorial!=expectedTutorial||world==expectedTutorial)throw new Exception("Destination routing disagrees with completion flag");
+            if(UnityEngine.Object.FindObjectOfType<TutorialPortal>()==null)throw new Exception("Optional tutorial portal missing");
             _report.AppendLine("destination="+(tutorial?"tutorial":"openWorld")+"; completionAfter="+VoxelTutorial.Completed);
             _report.AppendLine("minEnabledCameras="+_minCameras);
             Finish(Errors.Count==0);

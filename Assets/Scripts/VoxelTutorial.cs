@@ -36,6 +36,7 @@ public sealed class VoxelTutorial : MonoBehaviour
     readonly List<AudioListener> _listeners = new List<AudioListener>();
     readonly List<Light> _sceneLights = new List<Light>();
     Action _enterWorld;
+    bool _returnToExistingWorld;
     GameObject _mapRoot, _playerGo, _exitBarrier;
     VoxelPlayer _player;
     CharacterController _controller;
@@ -60,12 +61,13 @@ public sealed class VoxelTutorial : MonoBehaviour
 
     public Camera ViewCamera => _camera;
 
-    public static VoxelTutorial Begin(Action enterWorld)
+    public static VoxelTutorial Begin(Action enterWorld, bool returnToExistingWorld = false)
     {
         var existing = FindObjectOfType<VoxelTutorial>();
         if (existing != null) return existing;
         var tutorial = new GameObject("NewPlayerTutorial").AddComponent<VoxelTutorial>();
         tutorial._enterWorld = enterWorld;
+        tutorial._returnToExistingWorld = returnToExistingWorld;
         tutorial.Build();
         return tutorial;
     }
@@ -314,7 +316,7 @@ public sealed class VoxelTutorial : MonoBehaviour
         ResetMeasurements();
     }
 
-    IEnumerator EnterWorld()
+    IEnumerator EnterWorld(bool completed = true)
     {
         _leaving = true;
         PanelOpen = true;
@@ -361,8 +363,11 @@ public sealed class VoxelTutorial : MonoBehaviour
         PanelOpen = false;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
-        PlayerPrefs.SetInt(CompletionKey, 1);
-        PlayerPrefs.Save();
+        if (completed)
+        {
+            PlayerPrefs.SetInt(CompletionKey, 1);
+            PlayerPrefs.Save();
+        }
         Debug.Log("[VoxelDemo] Tutorial completed; entered original world.");
         Destroy(gameObject);
     }
@@ -452,7 +457,7 @@ public sealed class VoxelTutorial : MonoBehaviour
             string title = _panel == Panel.Welcome ? "欢迎来到新手训练场" : "训练已暂停 · Esc";
             NativeLabel(new Rect(box.x + 24, box.y + 20, 652, 50), title, _heading);
             string text = _panel == Panel.Welcome
-                ? "沿训练步道学习基础操作。完成全部练习后，蓝色出口才会开放。\n\n这里沿用原来的移动、跳跃与技能规则。训练补给和角色调整只用于练习。\n\n每次进入都需要完成新手教程，再从出口前往原世界出生点。"
+                ? "沿训练步道学习基础操作。完成全部练习后，蓝色出口才会开放。\n\n这里沿用原来的移动、跳跃与技能规则。训练补给和角色调整只用于练习。\n\n教程现在为可选内容。可从出生点附近的传送门进入，也可在暂停界面返回原世界。"
                 : "关闭界面后继续当前步骤，已经完成的练习会保留。\n\n原世界常用功能：\nB 背包　C 角色　M 地图　Esc 菜单\nE 开箱　R 吃烤肉　T 对话　P 祈愿\n\n技能条会显示冷却与能量；能量不足时不能释放爆发。";
             NativeLabel(new Rect(box.x + 24, box.y + 85, 652, 275), text, _body);
             if (NativeButton(new Rect(box.x + 200, box.y + 375, 300, 44), _panel == Panel.Welcome ? "开始基础操作教程" : "返回训练"))
@@ -462,6 +467,8 @@ public sealed class VoxelTutorial : MonoBehaviour
                 SetPanel(Panel.None);
                 if (_step == 11 && closed == Panel.Pause) Advance();
             }
+            if (_returnToExistingWorld && NativeButton(new Rect(box.x + 200, box.y + 426, 300, 36), "退出训练，返回原世界"))
+                StartCoroutine(EnterWorld(false));
         }
         else if (!VoxelPanels.ModalOpen)
         {

@@ -105,6 +105,11 @@ public class WorldMap : MonoBehaviour
             Cursor.visible = false;
         }
         IsOpen = false;
+    }
+
+    // Suspension for training is temporary; preserve the existing map textures.
+    void OnDestroy()
+    {
         if (_map != null) Destroy(_map);
         if (_ring != null) Destroy(_ring);
         if (_arrow != null) Destroy(_arrow);

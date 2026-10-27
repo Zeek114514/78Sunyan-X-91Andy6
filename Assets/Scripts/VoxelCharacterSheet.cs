@@ -286,6 +286,9 @@ public class VoxelCharacterSheet : MonoBehaviour
         Init(inventory);
     }
 
+    // Reclaim the existing live roster after an optional, isolated training visit.
+    public void ResumeAfterTraining() { Instance = this; }
+
     void OnDestroy()
     {
         if (Instance == this) Instance = null;      // 停播时清掉静态状态

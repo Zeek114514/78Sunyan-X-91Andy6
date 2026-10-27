@@ -16,7 +16,7 @@ public static class VoxelPanels
 {
     /// <summary>有没有全屏面板开着（新增面板在这里加一项即可）</summary>
     public static bool ModalOpen =>
-        VoxelTutorial.PanelOpen ||
+        VoxelTutorial.PanelOpen || TutorialPortal.IsOpen ||
         TitleScreen.IsOpen || VoxelMenu.IsOpen || VoxelInventory.IsOpen ||
         VoxelCharacterScreen.IsOpen || VoxelGacha.IsOpen || WorldMap.IsOpen;
 

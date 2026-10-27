@@ -203,7 +203,7 @@ public sealed class TitleScreen : MonoBehaviour
         try
         {
             SceneManager.SetActiveScene(_destinationScene);
-            RoutedToTutorial = true;
+            RoutedToTutorial = false;
             DestinationCamera = _enterGame();
         }
         catch (Exception error) { Fail("目标场景加载失败："+error.Message);Debug.LogException(error); }
